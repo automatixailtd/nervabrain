@@ -13557,17 +13557,22 @@ select:focus:focus-visible {
 }
 .settings-detail .settings-modules-actions { border-top: 0; padding-top: 16px; }
 
-.settings-detail .setup-ai-providers { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.settings-detail .setup-ai-providers {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--line-soft);
+}
 .settings-detail .setup-ai-provider,
 .settings-detail .setup-ai-provider.is-claude,
 .settings-detail .setup-ai-provider.is-codex,
 .settings-detail .setup-ai-provider.is-verified,
 .settings-detail .setup-ai-provider:hover {
-  border: 1px solid var(--line-soft);
-  border-radius: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
-  padding: 18px;
+  padding: 22px 2px;
   transform: none;
 }
 .settings-detail .setup-ai-mark,
@@ -13579,6 +13584,7 @@ select:focus:focus-visible {
   filter: none;
 }
 .settings-detail .setup-ai-logo { filter: none; }
+.settings-detail .setup-ai-verified { display: none; }
 .settings-detail .setup-ai-methods button.is-active,
 .settings-detail .setup-ai-provider.is-claude .setup-ai-methods button.is-active,
 .settings-detail .setup-ai-provider.is-codex .setup-ai-methods button.is-active {
@@ -13587,14 +13593,14 @@ select:focus:focus-visible {
   box-shadow: none;
   color: var(--ink);
 }
-.settings-detail .settings-ai-form { display: grid; gap: 14px; }
+.settings-detail .settings-ai-form { display: grid; gap: 0; }
 .settings-detail .setup-bridge {
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
-  border: 1px solid var(--line-soft);
-  border-radius: 12px;
+  border: 0;
+  border-radius: 0;
   background: transparent;
-  padding: 18px;
+  padding: 22px 2px;
 }
 .settings-detail .setup-bridge-help {
   border: 1px solid var(--line-soft);
@@ -13612,10 +13618,11 @@ select:focus:focus-visible {
 }
 .settings-detail .setup-ai-provider-footer > .button { justify-self: start; }
 .settings-detail .setup-engine-order {
-  border: 1px solid var(--line-soft);
-  border-radius: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
   background: transparent;
-  padding: 18px;
+  padding: 22px 2px;
 }
 .settings-detail .setup-engine-auto {
   border: 0;
@@ -13633,10 +13640,11 @@ select:focus:focus-visible {
 .settings-detail .settings-group,
 .settings-detail .settings-group + .settings-group {
   margin: 0;
-  border: 1px solid var(--line-soft);
-  border-radius: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
   background: transparent;
-  padding: 18px;
+  padding: 22px 2px;
 }
 .settings-detail .settings-ai-form > .button { margin-top: 18px; }
 
