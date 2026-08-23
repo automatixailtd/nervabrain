@@ -11,6 +11,7 @@ WORKDIR /bridge
 COPY bridge/memo-bridge.py ./memo-bridge.py
 COPY scripts/check-ai-bridge-security.py ./check-ai-bridge-security.py
 COPY prompts /prompts
+RUN chmod -R a+rX /bridge /prompts
 
 WORKDIR /tmp
 
