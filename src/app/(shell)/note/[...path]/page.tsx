@@ -10,12 +10,14 @@ import { sanitizeBriefOutput } from "@/lib/markdown";
 
 export const dynamic = "force-dynamic";
 
-const BACK_BY_KIND: Record<string, { href: string; labelKey: "nav.objectives" | "nav.tasks" | "nav.inbox" | "nav.notes" | "nav.wiki" }> = {
+const BACK_BY_KIND: Record<string, { href: string; labelKey: "nav.objectives" | "nav.tasks" | "nav.inbox" | "nav.notes" | "nav.wiki" | "nav.applications" }> = {
   objective: { href: "/objectives", labelKey: "nav.objectives" },
   task: { href: "/tasks", labelKey: "nav.tasks" },
   capture: { href: "/inbox", labelKey: "nav.inbox" },
   raw: { href: "/notes", labelKey: "nav.notes" },
   wiki: { href: "/wiki", labelKey: "nav.wiki" },
+  "job-application": { href: "/applications", labelKey: "nav.applications" },
+  "application-document": { href: "/applications", labelKey: "nav.applications" },
 };
 
 function docHref(relativePath: string) {

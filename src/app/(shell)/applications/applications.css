@@ -106,24 +106,37 @@
 .applications-list-section h2,
 .applications-sources h2 { margin: 6px 0 7px; font-size: 19px; letter-spacing: -.02em; }
 
-.applications-search {
+.applications-list-tools {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 14px;
   border-top: 1px solid var(--line-soft);
   border-bottom: 1px solid var(--line-soft);
   background: var(--surface-sunken-4);
-  color: var(--muted);
   padding: 10px 22px;
 }
 
+.applications-search {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+}
+
 .applications-search input {
-  width: min(100%, 420px);
-  min-height: 42px;
+  width: 100%;
+  min-height: 44px;
   border: 0;
   background: transparent;
   box-shadow: none;
 }
+
+.applications-stage-filter { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; color: var(--muted); font-size: 10px; font-weight: 620; }
+.applications-stage-filter .custom-select { width: 210px; }
+.applications-stage-filter .custom-select-trigger { min-height: 44px; }
+.applications-stage-filter .custom-select-trigger:focus { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 
 .applications-row-head,
 .applications-row {
@@ -143,11 +156,16 @@
 }
 
 .applications-row { border-top: 1px solid var(--line-soft); padding: 15px 22px; }
+.applications-identity { display: flex; min-width: 0; align-items: center; gap: 11px; }
+.applications-company-mark { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--accent-soft); color: var(--dash-accent); font-size: 11px; font-weight: 750; letter-spacing: .03em; }
 .applications-role,
 .applications-row > div:nth-child(3) { display: grid; min-width: 0; gap: 4px; }
-.applications-role > a { overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.applications-role > span,
+.applications-role > a { display: flex; min-height: 44px; align-items: center; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.applications-company-meta { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.applications-company-meta > span,
 .applications-row > div:nth-child(3) span { display: flex; align-items: center; gap: 3px; color: var(--muted); font-size: 10px; }
+.applications-company-meta .applications-source { color: var(--ink-soft); }
+.applications-source img { width: 14px; height: 14px; border-radius: 4px; }
 .applications-row > div:nth-child(3) strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .applications-row > div:nth-child(3).is-due strong,
 .applications-row > div:nth-child(3).is-due span { color: var(--amber); }
@@ -190,8 +208,36 @@
 .applications-documents article { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--panel); padding: 14px; }
 .applications-documents article > svg { color: var(--dash-accent); }
 .applications-documents article > div { display: grid; min-width: 0; gap: 4px; }
-.applications-documents article > div a { overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.applications-documents article > div a { display: flex; min-height: 44px; align-items: center; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.applications-documents article > div a:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 .applications-documents article > div span { color: var(--muted); font-size: 10px; }
+
+.applications-document-links {
+  display: grid;
+  grid-column: 2 / -1;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, .65fr);
+  gap: 10px;
+}
+
+.applications-document-links > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.applications-document-links > div button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 11px;
+}
+.applications-document-links > div button:hover { border-color: var(--line-strong); color: var(--ink); }
+.applications-document-links > div button:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
+.applications-document-links .custom-select-trigger { min-height: 44px; }
+.applications-document-links .custom-select-trigger:focus,
+.applications-form .custom-select-trigger:focus { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 
 .applications-sources form { display: grid; gap: 18px; border-top: 1px solid var(--line-soft); padding: 22px; }
 .applications-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
@@ -275,7 +321,9 @@
   .applications-sources > header { align-items: stretch; flex-direction: column; padding: 18px; }
   .applications-sources > header .button,
   .applications-list-section > header .button { justify-content: center; width: 100%; }
-  .applications-search { padding: 9px 14px; }
+  .applications-list-tools { align-items: stretch; flex-direction: column; padding: 9px 14px; }
+  .applications-stage-filter { align-items: stretch; flex-direction: column; gap: 6px; }
+  .applications-stage-filter .custom-select { width: 100%; }
   .applications-row { grid-template-columns: minmax(0, 1fr); }
   .applications-row > div,
   .applications-row > div:nth-child(3),
@@ -288,6 +336,7 @@
   .applications-documents { padding: 12px; }
   .applications-documents article { grid-template-columns: auto minmax(0, 1fr); }
   .applications-documents article > .applications-link { grid-column: 1 / -1; }
+  .applications-document-links { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); }
   .applications-form-grid { grid-template-columns: minmax(0, 1fr); }
   .applications-sources form { padding: 18px; }
   .applications-sources form > footer { align-items: stretch; flex-direction: column; }

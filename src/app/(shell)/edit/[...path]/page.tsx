@@ -4,6 +4,15 @@ import { noteForClient, readNote } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
 
+const BACK_BY_KIND: Record<string, string> = {
+  objective: "/objectives",
+  task: "/tasks",
+  capture: "/inbox",
+  wiki: "/wiki",
+  "job-application": "/applications",
+  "application-document": "/applications",
+};
+
 export default async function EditNotePage({
   params,
 }: {
@@ -14,15 +23,7 @@ export default async function EditNotePage({
   const note = await readNote(relativePath);
   if (!note) notFound();
 
-  const backHref = note.kind === "objective"
-    ? "/objectives"
-    : note.kind === "task"
-      ? "/tasks"
-      : note.kind === "capture"
-        ? "/inbox"
-        : note.kind === "wiki"
-          ? "/wiki"
-          : "/notes";
+  const backHref = BACK_BY_KIND[note.kind] || "/notes";
 
   return (
     <>

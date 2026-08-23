@@ -10,6 +10,8 @@ const BACK_BY_KIND: Record<string, string> = {
   capture: "/inbox",
   raw: "/notes",
   wiki: "/wiki",
+  "job-application": "/applications",
+  "application-document": "/applications",
 };
 
 export default async function DocPage({

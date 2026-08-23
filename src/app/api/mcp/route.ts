@@ -9,6 +9,11 @@ import {
   createWikiNote,
   noteHref,
   upsertVaultNote,
+  listApplicationRecords,
+  createApplication,
+  createApplicationDocument,
+  updateApplicationStage,
+  linkApplicationDocument,
 } from "@/lib/vault";
 import { preflight, withCors } from "@/lib/cors";
 import { authenticateRequest, type AuthContext } from "@/lib/auth";
@@ -100,6 +105,16 @@ const TOOLS = [
     },
   },
   {
+    name: "list_applications",
+    description: "List tracked job applications and the document library, including the document paths linked to each application.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        stage: { type: "string", enum: ["new", "preparing", "applied", "interview", "offer", "accepted", "rejected", "withdrawn", "ignored", "all"] },
+      },
+    },
+  },
+  {
     name: "capture_insight",
     description: "Capture an insight, idea, excerpt, or commitment. Nerva Brain immediately classifies it into a task, working note, durable knowledge, or archive.",
     inputSchema: {
@@ -159,9 +174,77 @@ const TOOLS = [
       required: ["title"],
     },
   },
+  {
+    name: "create_application",
+    description: "Create a tracked job application without submitting it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        company: { type: "string" },
+        role: { type: "string" },
+        location: { type: "string" },
+        offer_url: { type: "string" },
+        stage: { type: "string", enum: ["new", "preparing", "applied", "interview", "offer", "accepted", "rejected", "withdrawn", "ignored"] },
+        next_action: { type: "string" },
+        next_action_date: { type: "string", description: "ISO date YYYY-MM-DD" },
+        notes: { type: "string" },
+      },
+      required: ["role"],
+    },
+  },
+  {
+    name: "update_application_stage",
+    description: "Update the stage of a tracked application. Setting applied or later stamps applied_on once.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        application_path: { type: "string" },
+        stage: { type: "string", enum: ["new", "preparing", "applied", "interview", "offer", "accepted", "rejected", "withdrawn", "ignored"] },
+      },
+      required: ["application_path", "stage"],
+    },
+  },
+  {
+    name: "create_application_document",
+    description: "Add a Canva, Google Docs, portfolio, or other document link and optionally attach it to an application.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        kind: { type: "string", enum: ["cv", "cover_letter", "portfolio", "other"] },
+        url: { type: "string" },
+        version: { type: "string" },
+        notes: { type: "string" },
+        application_path: { type: "string" },
+      },
+      required: ["name", "url"],
+    },
+  },
+  {
+    name: "link_application_document",
+    description: "Link or unlink an existing application document. One document may be reused by multiple applications.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        application_path: { type: "string" },
+        document_path: { type: "string" },
+        linked: { type: "boolean", description: "True to link, false to unlink. Defaults to true." },
+      },
+      required: ["application_path", "document_path"],
+    },
+  },
 ];
 
-const WRITE_TOOLS = new Set(["capture_insight", "save_daily_chat_digest", "save_wiki_note", "create_task"]);
+const WRITE_TOOLS = new Set([
+  "capture_insight",
+  "save_daily_chat_digest",
+  "save_wiki_note",
+  "create_task",
+  "create_application",
+  "update_application_stage",
+  "create_application_document",
+  "link_application_document",
+]);
 
 function toolScope(name: string): OAuthScope {
   return WRITE_TOOLS.has(name) ? "write" : "read";
@@ -238,6 +321,50 @@ async function callTool(name: string, args: Record<string, unknown>) {
       return { content: [{ type: "text", text: note.content ?? "" }] };
     }
 
+    case "list_applications": {
+      const records = await listApplicationRecords();
+      const applications = records.filter((note) => String(note.data.record_type || "") === "application");
+      const documents = records.filter((note) => String(note.data.record_type || "") === "document");
+      const documentByPath = new Map(documents.map((note) => [note.relativePath, note]));
+      const paths = (value: unknown) => (Array.isArray(value) ? value : []).map(String);
+      const stage = String(args.stage || "all");
+      const selected = stage === "all" ? applications : applications.filter((note) => String(note.data.stage || "new") === stage);
+      const payload = {
+        applications: selected.map((note) => {
+          const documentPaths = paths(note.data.document_paths);
+          return {
+            id: note.relativePath,
+            title: note.title,
+            company: String(note.data.company || ""),
+            role: String(note.data.role || note.title),
+            location: String(note.data.location || ""),
+            stage: String(note.data.stage || "new"),
+            offer_url: String(note.data.offer_url || ""),
+            found_on: String(note.data.found_on || ""),
+            applied_on: String(note.data.applied_on || ""),
+            next_action: String(note.data.next_action || ""),
+            next_action_date: String(note.data.next_action_date || ""),
+            document_paths: documentPaths,
+            documents: documentPaths.map((path) => documentByPath.get(path)).filter(Boolean).map((document) => ({
+              id: document!.relativePath,
+              name: document!.title,
+              kind: String(document!.data.document_kind || "other"),
+              url: String(document!.data.document_url || ""),
+            })),
+          };
+        }),
+        documents: documents.map((note) => ({
+          id: note.relativePath,
+          name: note.title,
+          kind: String(note.data.document_kind || "other"),
+          url: String(note.data.document_url || ""),
+          version: String(note.data.version || ""),
+          application_paths: applications.filter((application) => paths(application.data.document_paths).includes(note.relativePath)).map((application) => application.relativePath),
+        })),
+      };
+      return { content: [{ type: "text", text: JSON.stringify(payload) }] };
+    }
+
     case "capture_insight": {
       const note = await createCapture({
         text: String(args.text || ""),
@@ -295,6 +422,47 @@ async function callTool(name: string, args: Record<string, unknown>) {
         why: args.why ? String(args.why) : undefined,
       });
       return { content: [{ type: "text", text: `Task created: ${note.relativePath}` }] };
+    }
+
+    case "create_application": {
+      const note = await createApplication({
+        company: args.company ? String(args.company) : undefined,
+        role: String(args.role || ""),
+        location: args.location ? String(args.location) : undefined,
+        offerUrl: args.offer_url ? String(args.offer_url) : undefined,
+        stage: args.stage ? String(args.stage) : undefined,
+        nextAction: args.next_action ? String(args.next_action) : undefined,
+        nextActionDate: args.next_action_date ? String(args.next_action_date) : undefined,
+        notes: args.notes ? String(args.notes) : undefined,
+        source: "mcp",
+      });
+      return { content: [{ type: "text", text: `Application created: ${note.relativePath}` }] };
+    }
+
+    case "update_application_stage": {
+      const note = await updateApplicationStage(String(args.application_path || ""), String(args.stage || ""));
+      return { content: [{ type: "text", text: `Application updated: ${note?.relativePath || ""}` }] };
+    }
+
+    case "create_application_document": {
+      const note = await createApplicationDocument({
+        name: String(args.name || ""),
+        kind: args.kind ? String(args.kind) : undefined,
+        url: String(args.url || ""),
+        version: args.version ? String(args.version) : undefined,
+        notes: args.notes ? String(args.notes) : undefined,
+        applicationPath: args.application_path ? String(args.application_path) : undefined,
+      });
+      return { content: [{ type: "text", text: `Application document created: ${note.relativePath}` }] };
+    }
+
+    case "link_application_document": {
+      const note = await linkApplicationDocument(
+        String(args.application_path || ""),
+        String(args.document_path || ""),
+        args.linked !== false,
+      );
+      return { content: [{ type: "text", text: `Application documents updated: ${note?.relativePath || ""}` }] };
     }
 
     default:

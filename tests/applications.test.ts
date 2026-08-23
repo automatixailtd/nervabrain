@@ -6,10 +6,12 @@ import test from "node:test";
 import {
   createApplication,
   createApplicationDocument,
+  linkApplicationDocument,
   listApplicationRecords,
   matchesJobWatch,
   readJobWatchSettings,
   saveJobWatchSettings,
+  updateNote,
   updateApplicationStage,
   type JobWatchSettings,
 } from "../src/lib/vault";
@@ -37,11 +39,23 @@ test("applications keep offer and document links in Markdown and stamp submissio
     stage: "new",
     foundOn: "2026-08-23",
   });
-  await createApplicationDocument({ name: "CV DevOps", kind: "cv", url: "https://www.canva.com/design/cv", version: "v3" });
+  const document = await createApplicationDocument({ name: "CV DevOps", kind: "cv", url: "https://www.canva.com/design/cv", version: "v3", applicationPath: application.relativePath });
 
   assert.equal(application.relativePath.startsWith("13-Applications/"), true);
   assert.equal(application.data.stage, "new");
   assert.match(application.content, /\[CV\]\(https:\/\/www\.canva\.com\/design\/cv\)/);
+
+  const renamed = await updateNote({ relativePath: application.relativePath, title: "Infomaniak · Senior SRE", content: application.content });
+  assert.equal(renamed.data.company, "Infomaniak");
+  assert.equal(renamed.data.role, "Senior SRE");
+  const roleOnly = await updateNote({ relativePath: application.relativePath, title: "Platform Engineer", content: renamed.content });
+  assert.equal(roleOnly.title, "Infomaniak · Platform Engineer");
+  assert.equal(roleOnly.data.role, "Platform Engineer");
+  assert.deepEqual((await listApplicationRecords()).find((note) => note.relativePath === application.relativePath)?.data.document_paths, [document.relativePath]);
+
+  await linkApplicationDocument(application.relativePath, document.relativePath, false);
+  assert.deepEqual((await listApplicationRecords()).find((note) => note.relativePath === application.relativePath)?.data.document_paths, []);
+  await linkApplicationDocument(application.relativePath, document.relativePath);
 
   const submitted = await updateApplicationStage(application.relativePath, "applied");
   const interviewed = await updateApplicationStage(application.relativePath, "interview");

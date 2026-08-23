@@ -22,6 +22,7 @@ import {
 import {
   createApplicationAction,
   createApplicationDocumentAction,
+  linkApplicationDocumentAction,
   refreshJobFeedsAction,
   saveJobWatchSettingsAction,
   updateApplicationStageAction,
@@ -36,6 +37,8 @@ import type { JobWatchSettings, VaultNote } from "@/lib/vault";
 
 const APPLICATION_STAGES = ["new", "preparing", "applied", "interview", "offer", "accepted", "rejected", "withdrawn", "ignored"] as const;
 type ApplicationStage = (typeof APPLICATION_STAGES)[number];
+type ApplicationStageFilter = "active" | "all" | ApplicationStage;
+const ACTIVE_APPLICATION_STAGES = new Set<ApplicationStage>(["new", "preparing", "applied", "interview", "offer"]);
 const APPLICATION_DOCUMENT_KINDS = ["cv", "cover_letter", "portfolio", "other"] as const;
 type ApplicationDocumentKind = (typeof APPLICATION_DOCUMENT_KINDS)[number];
 
@@ -51,12 +54,15 @@ type Application = {
   location: string;
   stage: ApplicationStage;
   offerUrl: string;
+  source: string;
+  sourceUrl: string;
   foundOn: string;
   appliedOn: string;
   nextAction: string;
   nextActionDate: string;
   cvUrl: string;
   coverLetterUrl: string;
+  documentPaths: string[];
 };
 
 type Document = {
@@ -75,6 +81,33 @@ function noteLink(relativePath: string) {
   return "/note/" + relativePath.split("/").map(encodeURIComponent).join("/");
 }
 
+function companyInitials(company: string) {
+  const words = company.trim().split(/\s+/).filter(Boolean);
+  return words.length ? words.slice(0, 2).map((word) => word[0]).join("").toUpperCase() : "•";
+}
+
+function applicationSource(application: Application) {
+  const url = application.offerUrl || application.sourceUrl;
+  let host = "";
+  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* no public source URL */ }
+  const stored = ["manual", "mcp", "vault"].includes(application.source.toLowerCase()) ? "" : application.source;
+  const label = host.endsWith("linkedin.com") ? "LinkedIn" : host === "jobup.ch" || host.endsWith(".jobup.ch") ? "JobUp" : stored || host;
+  return label ? { host, label } : null;
+}
+
+function ApplicationSource({ source }: { source: { host: string; label: string } }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span className="applications-source">
+      {source.host && !failed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(source.host)}&sz=64`} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+      ) : <ExternalLink size={12} aria-hidden />}
+      {source.label}
+    </span>
+  );
+}
+
 function applicationFromNote(note: VaultNote): Application | null {
   if (value(note.data.record_type) !== "application") return null;
   const rawStage = value(note.data.stage);
@@ -87,12 +120,15 @@ function applicationFromNote(note: VaultNote): Application | null {
     location: value(note.data.location),
     stage,
     offerUrl: value(note.data.offer_url),
+    source: value(note.data.source),
+    sourceUrl: value(note.data.source_url),
     foundOn: value(note.data.found_on),
     appliedOn: value(note.data.applied_on),
     nextAction: value(note.data.next_action),
     nextActionDate: value(note.data.next_action_date),
     cvUrl: value(note.data.cv_url),
     coverLetterUrl: value(note.data.cover_letter_url),
+    documentPaths: Array.isArray(note.data.document_paths) ? note.data.document_paths.map(String) : [],
   };
 }
 
@@ -113,7 +149,7 @@ function ExternalButton({ href, children }: { href: string; children: React.Reac
   return <a className="applications-link" href={href} target="_blank" rel="noreferrer">{children}<ExternalLink size={13} aria-hidden /></a>;
 }
 
-function ApplicationModal({ kind, today, onClose }: { kind: Exclude<Modal, null>; today: string; onClose: () => void }) {
+function ApplicationModal({ kind, today, applications, onClose }: { kind: Exclude<Modal, null>; today: string; applications: Application[]; onClose: () => void }) {
   const { locale, t } = useLanguage();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -125,6 +161,7 @@ function ApplicationModal({ kind, today, onClose }: { kind: Exclude<Modal, null>
   const [nextActionDate, setNextActionDate] = useState("");
   const stageOptions = APPLICATION_STAGES.filter((item) => item !== "ignored").map((item) => ({ value: item, label: t(`applications.stage.${item}` as TranslationKey) }));
   const documentOptions = APPLICATION_DOCUMENT_KINDS.map((item) => ({ value: item, label: t(`applications.document.${item}` as TranslationKey) }));
+  const applicationOptions = [{ value: "", label: t("applications.document.unlinked") }, ...applications.map((item) => ({ value: item.path, label: `${item.company || t("applications.companyUnknown")} · ${item.role}` }))];
 
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
@@ -183,6 +220,7 @@ function ApplicationModal({ kind, today, onClose }: { kind: Exclude<Modal, null>
                 <label>{t("applications.field.documentName")}<input name="name" autoFocus required placeholder={t("applications.placeholder.documentName")} /></label>
                 <label>{t("applications.field.documentKind")}<CustomSelect name="kind" options={documentOptions} value={documentKind} onChange={(next) => setDocumentKind(next as ApplicationDocumentKind)} /></label>
                 <label>{t("applications.field.version")}<input name="version" placeholder={t("applications.placeholder.version")} /></label>
+                <label>{t("applications.field.linkedApplication")}<CustomSelect name="applicationPath" options={applicationOptions} defaultValue="" searchable /></label>
               </div>
               <label>{t("applications.field.documentUrl")}<input name="url" required type="url" placeholder="https://…" /></label>
               <label>{t("applications.field.notes")}<textarea name="notes" rows={4} /></label>
@@ -196,20 +234,22 @@ function ApplicationModal({ kind, today, onClose }: { kind: Exclude<Modal, null>
   );
 }
 
-function ApplicationRow({ application, today, pending, onStage }: { application: Application; today: string; pending: boolean; onStage: (path: string, stage: string) => void }) {
+function ApplicationRow({ application, documents, today, pending, onStage }: { application: Application; documents: Document[]; today: string; pending: boolean; onStage: (path: string, stage: string) => void }) {
   const { locale, t } = useLanguage();
   const stageOptions = APPLICATION_STAGES.map((item) => ({ value: item, label: t(`applications.stage.${item}` as TranslationKey) }));
   const formatDate = (date: string) => date ? new Intl.DateTimeFormat(locale === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00Z`)) : t("applications.noDate");
   const due = application.nextActionDate && application.nextActionDate <= today && !["accepted", "rejected", "withdrawn", "ignored"].includes(application.stage);
+  const source = applicationSource(application);
   return (
     <article className="applications-row">
-      <div className="applications-role"><Link href={noteLink(application.path)}>{application.role}</Link><span>{application.company || t("applications.companyUnknown")}{application.location ? <> · <MapPin size={11} aria-hidden /> {application.location}</> : null}</span></div>
+      <div className="applications-identity"><span className="applications-company-mark" aria-hidden>{companyInitials(application.company)}</span><div className="applications-role"><Link href={noteLink(application.path)}>{application.role}</Link><div className="applications-company-meta"><span>{application.company || t("applications.companyUnknown")}{application.location ? <> · <MapPin size={11} aria-hidden /> {application.location}</> : null}</span>{source ? <ApplicationSource source={source} /> : null}</div></div></div>
       <div><CustomSelect name="stage" options={stageOptions} value={application.stage} onChange={(stage) => onStage(application.path, stage)} disabled={pending} /></div>
       <div className={due ? "is-due" : ""}><strong>{application.nextAction || t("applications.noNextAction")}</strong><span>{formatDate(application.nextActionDate || application.appliedOn || application.foundOn)}</span></div>
       <div className="applications-links">
         <ExternalButton href={application.offerUrl}>{t("applications.link.offer")}</ExternalButton>
         <ExternalButton href={application.cvUrl}>{t("applications.link.cv")}</ExternalButton>
         <ExternalButton href={application.coverLetterUrl}>{t("applications.link.letter")}</ExternalButton>
+        {documents.map((document) => <ExternalButton href={document.url} key={document.path}>{document.name}</ExternalButton>)}
       </div>
     </article>
   );
@@ -221,17 +261,24 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
   const [tab, setTab] = useState<Tab>("pipeline");
   const [modal, setModal] = useState<Modal>(null);
   const [query, setQuery] = useState("");
+  const [stageFilter, setStageFilter] = useState<ApplicationStageFilter>("active");
   const [message, setMessage] = useState("");
   const [pending, startTransition] = useTransition();
   const modalTrigger = useRef<HTMLElement | null>(null);
   const applications = useMemo(() => records.map(applicationFromNote).filter((item): item is Application => Boolean(item)), [records]);
   const documents = useMemo(() => records.map(documentFromNote).filter((item): item is Document => Boolean(item)), [records]);
   const newOffers = applications.filter((item) => item.stage === "new");
-  const pipeline = applications.filter((item) => item.stage !== "ignored");
+  const activeApplications = applications.filter((item) => ACTIVE_APPLICATION_STAGES.has(item.stage));
+  const pipeline = stageFilter === "active" ? activeApplications : stageFilter === "all" ? applications : applications.filter((item) => item.stage === stageFilter);
   const visible = (tab === "offers" ? newOffers : pipeline).filter((item) => matchesBusinessSearch(`${item.company} ${item.role} ${item.location} ${item.nextAction}`, query));
   const due = applications.filter((item) => item.nextActionDate && item.nextActionDate <= today && !["accepted", "rejected", "withdrawn", "ignored"].includes(item.stage));
   const sent = applications.filter((item) => ["applied", "interview", "offer", "accepted", "rejected"].includes(item.stage));
   const interviews = applications.filter((item) => item.stage === "interview").length;
+  const filterOptions = [
+    { value: "active", label: t("applications.filter.active") },
+    { value: "all", label: t("applications.filter.all") },
+    ...APPLICATION_STAGES.map((item) => ({ value: item, label: t(`applications.stage.${item}` as TranslationKey) })),
+  ];
 
   function openModal(next: Exclude<Modal, null>) {
     modalTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -251,6 +298,19 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
     startTransition(async () => {
       const result = await updateApplicationStageAction(data);
       if (!result.ok) setMessage(result.error || t("applications.error.update"));
+      else router.refresh();
+    });
+  }
+
+  function setDocumentLink(applicationPath: string, documentPath: string, linked: boolean) {
+    const data = new FormData();
+    data.set("applicationPath", applicationPath);
+    data.set("documentPath", documentPath);
+    data.set("linked", String(linked));
+    setMessage("");
+    startTransition(async () => {
+      const result = await linkApplicationDocumentAction(data);
+      if (!result.ok) setMessage(result.error || t("applications.error.documentLink"));
       else router.refresh();
     });
   }
@@ -276,7 +336,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
   }
 
   const tabs: Array<{ value: Tab; label: TranslationKey; icon: React.ReactNode; count?: number }> = [
-    { value: "pipeline", label: "applications.tab.pipeline", icon: <BriefcaseBusiness size={16} />, count: pipeline.length },
+    { value: "pipeline", label: "applications.tab.pipeline", icon: <BriefcaseBusiness size={16} />, count: activeApplications.length },
     { value: "offers", label: "applications.tab.offers", icon: <BellRing size={16} />, count: newOffers.length },
     { value: "documents", label: "applications.tab.documents", icon: <FolderOpen size={16} />, count: documents.length },
     { value: "sources", label: "applications.tab.sources", icon: <Settings2 size={16} /> },
@@ -291,7 +351,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
       </header>
 
       <MetricCards className="applications-metrics" items={[
-        { label: t("applications.metric.active"), value: pipeline.filter((item) => !["accepted", "rejected", "withdrawn"].includes(item.stage)).length, detail: t("applications.metric.activeDetail"), icon: <BriefcaseBusiness size={15} />, tone: "accent" },
+        { label: t("applications.metric.active"), value: activeApplications.length, detail: t("applications.metric.activeDetail"), icon: <BriefcaseBusiness size={15} />, tone: "accent" },
         { label: t("applications.metric.sent"), value: sent.length, detail: t("applications.metric.sentDetail"), icon: <Send size={15} />, tone: "info" },
         { label: t("applications.metric.interviews"), value: interviews, detail: t("applications.metric.interviewsDetail"), icon: <CheckCircle2 size={15} />, tone: "positive" },
         { label: t("applications.metric.due"), value: due.length, detail: t("applications.metric.dueDetail"), icon: <CalendarClock size={15} />, tone: due.length ? "warning" : "neutral" },
@@ -302,13 +362,29 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
       {(tab === "pipeline" || tab === "offers") ? (
         <section className="applications-list-section">
           <header><div><span className="eyebrow">{t(tab === "offers" ? "applications.offers.eyebrow" : "applications.pipeline.eyebrow")}</span><h2>{t(tab === "offers" ? "applications.offers.title" : "applications.pipeline.title")}</h2><p>{t(tab === "offers" ? "applications.offers.description" : "applications.pipeline.description")}</p></div></header>
-          <label className="applications-search"><Search size={16} aria-hidden /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("applications.search")} /></label>
-          {visible.length ? <><div className="applications-row-head"><span>{t("applications.column.role")}</span><span>{t("applications.column.stage")}</span><span>{t("applications.column.next")}</span><span>{t("applications.column.documents")}</span></div><div className="applications-rows">{visible.map((application) => <ApplicationRow application={application} today={today} pending={pending} onStage={updateStage} key={application.path} />)}</div></> : <div className="applications-empty"><BriefcaseBusiness size={28} aria-hidden /><h3>{t(tab === "offers" ? "applications.offers.empty" : "applications.pipeline.empty")}</h3><p>{t(tab === "offers" ? "applications.offers.emptyHint" : "applications.pipeline.emptyHint")}</p>{tab === "pipeline" ? <button className="button primary" type="button" onClick={() => openModal("application")}>{t("applications.new")}</button> : null}</div>}
+          <div className="applications-list-tools"><label className="applications-search"><Search size={16} aria-hidden /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("applications.search")} /></label>{tab === "pipeline" ? <label className="applications-stage-filter"><span>{t("workspace.status")}</span><CustomSelect name="application-status-filter" options={filterOptions} value={stageFilter} onChange={(value) => setStageFilter(value as ApplicationStageFilter)} /></label> : null}</div>
+          {visible.length ? <><div className="applications-row-head"><span>{t("applications.column.role")}</span><span>{t("applications.column.stage")}</span><span>{t("applications.column.next")}</span><span>{t("applications.column.documents")}</span></div><div className="applications-rows">{visible.map((application) => <ApplicationRow application={application} documents={documents.filter((document) => application.documentPaths.includes(document.path))} today={today} pending={pending} onStage={updateStage} key={application.path} />)}</div></> : <div className="applications-empty"><BriefcaseBusiness size={28} aria-hidden /><h3>{t(tab === "offers" ? "applications.offers.empty" : "applications.pipeline.empty")}</h3><p>{t(tab === "offers" ? "applications.offers.emptyHint" : "applications.pipeline.emptyHint")}</p>{tab === "pipeline" ? <button className="button primary" type="button" onClick={() => openModal("application")}>{t("applications.new")}</button> : null}</div>}
         </section>
       ) : null}
 
       {tab === "documents" ? (
-        <section className="applications-list-section"><header><div><span className="eyebrow">{t("applications.documents.eyebrow")}</span><h2>{t("applications.documents.title")}</h2><p>{t("applications.documents.description")}</p></div><button className="button primary" type="button" onClick={() => openModal("document")}><Plus size={16} aria-hidden />{t("applications.document.new")}</button></header>{documents.length ? <div className="applications-documents">{documents.map((document) => <article key={document.path}><FileText size={20} aria-hidden /><div><Link href={noteLink(document.path)}>{document.name}</Link><span>{t(`applications.document.${document.kind}` as TranslationKey)}{document.version ? ` · ${document.version}` : ""}</span></div><ExternalButton href={document.url}>{t("applications.link.open")}</ExternalButton></article>)}</div> : <div className="applications-empty"><FolderOpen size={28} aria-hidden /><h3>{t("applications.documents.empty")}</h3><p>{t("applications.documents.emptyHint")}</p></div>}</section>
+        <section className="applications-list-section">
+          <header><div><span className="eyebrow">{t("applications.documents.eyebrow")}</span><h2>{t("applications.documents.title")}</h2><p>{t("applications.documents.description")}</p></div><button className="button primary" type="button" onClick={() => openModal("document")}><Plus size={16} aria-hidden />{t("applications.document.new")}</button></header>
+          {documents.length ? <div className="applications-documents">{documents.map((document) => {
+            const linkedApplications = applications.filter((application) => application.documentPaths.includes(document.path));
+            const availableApplications = applications.filter((application) => !application.documentPaths.includes(document.path));
+            const linkOptions = [{ value: "", label: t("applications.document.link") }, ...availableApplications.map((application) => ({ value: application.path, label: `${application.company || t("applications.companyUnknown")} · ${application.role}` }))];
+            return <article key={document.path}>
+              <FileText size={20} aria-hidden />
+              <div><Link href={noteLink(document.path)}>{document.name}</Link><span>{t(`applications.document.${document.kind}` as TranslationKey)}{document.version ? ` · ${document.version}` : ""}</span></div>
+              <ExternalButton href={document.url}>{t("applications.link.open")}</ExternalButton>
+              <div className="applications-document-links">
+                <div>{linkedApplications.map((application) => <button type="button" disabled={pending} onClick={() => setDocumentLink(application.path, document.path, false)} aria-label={t("applications.document.unlink").replace("{name}", application.title)} key={application.path}>{application.company || application.role}<X size={12} aria-hidden /></button>)}</div>
+                <CustomSelect name={`link-${document.path}`} options={linkOptions} value="" onChange={(applicationPath) => applicationPath && setDocumentLink(applicationPath, document.path, true)} disabled={pending || !availableApplications.length} searchable />
+              </div>
+            </article>;
+          })}</div> : <div className="applications-empty"><FolderOpen size={28} aria-hidden /><h3>{t("applications.documents.empty")}</h3><p>{t("applications.documents.emptyHint")}</p></div>}
+        </section>
       ) : null}
 
       {tab === "sources" ? (
@@ -316,7 +392,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
       ) : null}
 
       {message ? <p className="applications-status" role="status">{message}</p> : null}
-      {modal ? <ApplicationModal kind={modal} today={today} onClose={closeModal} /> : null}
+      {modal ? <ApplicationModal kind={modal} today={today} applications={applications} onClose={closeModal} /> : null}
     </main>
   );
 }

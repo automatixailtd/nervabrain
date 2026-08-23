@@ -95,6 +95,40 @@ test("search and fetch return the OpenAI connector document shape", async () => 
   assert.match(document.text, /zanzibar payload/);
 });
 
+test("application MCP tools create, link, list, update, and unlink documents", async () => {
+  resetOAuthStateForTests();
+  const readToken = bearerToken(["read"]);
+  const writeToken = bearerToken(["read", "write"]);
+  const readTools = (await (await POST(rpc({ jsonrpc: "2.0", id: "read-tools", method: "tools/list", params: {} }, readToken))).json()).result.tools;
+  const readNames = readTools.map((tool: { name: string }) => tool.name);
+  assert.ok(readNames.includes("list_applications"));
+  assert.ok(!readNames.includes("create_application"));
+
+  const call = async (name: string, args: Record<string, unknown>, token = writeToken) => {
+    const response = await POST(rpc({ jsonrpc: "2.0", id: name, method: "tools/call", params: { name, arguments: args } }, token));
+    return (await response.json()).result;
+  };
+  const created = await call("create_application", { company: "Acme", role: "SRE", stage: "new" });
+  const applicationPath = String(created.content[0].text).replace("Application created: ", "");
+  const documentCreated = await call("create_application_document", {
+    name: "CV SRE",
+    kind: "cv",
+    url: "https://www.canva.com/design/sre",
+    application_path: applicationPath,
+  });
+  const documentPath = String(documentCreated.content[0].text).replace("Application document created: ", "");
+
+  await call("update_application_stage", { application_path: applicationPath, stage: "preparing" });
+  let listed = JSON.parse((await call("list_applications", {}, readToken)).content[0].text);
+  assert.deepEqual(listed.applications.find((item: { id: string }) => item.id === applicationPath).document_paths, [documentPath]);
+  assert.deepEqual(listed.documents.find((item: { id: string }) => item.id === documentPath).application_paths, [applicationPath]);
+  assert.equal(listed.applications.find((item: { id: string }) => item.id === applicationPath).stage, "preparing");
+
+  await call("link_application_document", { application_path: applicationPath, document_path: documentPath, linked: false });
+  listed = JSON.parse((await call("list_applications", {}, readToken)).content[0].text);
+  assert.deepEqual(listed.applications.find((item: { id: string }) => item.id === applicationPath).document_paths, []);
+});
+
 test("fetch and read_note refuse non-Markdown vault files", async () => {
   resetOAuthStateForTests();
   fs.writeFileSync(path.join(scratchVault, "secret.json"), '{"secret":"must stay private"}\n');

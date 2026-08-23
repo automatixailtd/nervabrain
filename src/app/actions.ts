@@ -39,6 +39,7 @@ import {
   saveBusinessSettings,
   createApplication,
   createApplicationDocument,
+  linkApplicationDocument,
   updateApplicationStage,
   readJobWatchSettings,
   saveJobWatchSettings,
@@ -693,11 +694,26 @@ export async function createApplicationDocumentAction(formData: FormData) {
       url: text(formData, "url"),
       version: text(formData, "version"),
       notes: text(formData, "notes"),
+      applicationPath: text(formData, "applicationPath"),
     });
     revalidatePath("/applications");
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Impossible d’ajouter le document" };
+  }
+}
+
+export async function linkApplicationDocumentAction(formData: FormData) {
+  try {
+    await linkApplicationDocument(
+      text(formData, "applicationPath"),
+      text(formData, "documentPath"),
+      checkbox(formData, "linked"),
+    );
+    revalidatePath("/applications");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Impossible de lier le document" };
   }
 }
 

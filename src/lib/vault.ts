@@ -1705,6 +1705,20 @@ function applicationRecordType(note: VaultNote) {
   return stringValue(note.data.record_type);
 }
 
+function assertApplicationRecord(note: VaultNote | null, recordType: "application" | "document") {
+  if (!note || note.folder !== VAULT_FOLDERS.applications || applicationRecordType(note) !== recordType) {
+    throw new Error(recordType === "application" ? "Candidature introuvable" : "Document introuvable");
+  }
+  return note;
+}
+
+function applicationDocumentPaths(value: unknown) {
+  const paths = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+  return uniqueStrings(paths.map(String).map((item) => item.trim()).filter((item) =>
+    item.startsWith(`${VAULT_FOLDERS.applications}/`) && item.endsWith(".md"),
+  )).slice(0, 50);
+}
+
 export async function listApplicationRecords() {
   const notes = await listNotes("applications");
   return notes
@@ -1789,6 +1803,7 @@ export async function createApplicationDocument(input: {
   url: string;
   version?: string;
   notes?: string;
+  applicationPath?: string;
 }) {
   const name = applicationText(input.name, 200);
   if (!name) throw new Error("Nom du document requis");
@@ -1797,7 +1812,8 @@ export async function createApplicationDocument(input: {
     : "other";
   const url = applicationUrl(input.url);
   if (!url) throw new Error("Lien du document requis");
-  return writeNote("applications", {
+  if (input.applicationPath) assertApplicationRecord(await readNote(input.applicationPath), "application");
+  const note = await writeNote("applications", {
     title: name,
     data: {
       type: "application-document",
@@ -1810,13 +1826,12 @@ export async function createApplicationDocument(input: {
     },
     body: [`# ${name}`, "", `[Ouvrir le document](${url})`, "", "## Notes", input.notes?.trim().slice(0, 4_000) || ""].join("\n"),
   });
+  if (input.applicationPath) await linkApplicationDocument(input.applicationPath, note.relativePath);
+  return note;
 }
 
 export async function updateApplicationStage(relativePath: string, stageValue: string) {
-  const note = await readNote(relativePath);
-  if (!note || note.kind !== "job-application" || applicationRecordType(note) !== "application") {
-    throw new Error("Candidature introuvable");
-  }
+  const note = assertApplicationRecord(await readNote(relativePath), "application");
   if (!APPLICATION_STAGES.includes(stageValue as ApplicationStage)) throw new Error("Étape invalide");
   const stage = stageValue as ApplicationStage;
   const data: Record<string, unknown> = carryRawFrontmatter(note.data, {
@@ -1828,6 +1843,21 @@ export async function updateApplicationStage(relativePath: string, stageValue: s
   });
   await writeRawNote(note.relativePath, data, note.content, { expectedMtime: note.mtime });
   return readNote(note.relativePath);
+}
+
+export async function linkApplicationDocument(applicationPath: string, documentPath: string, linked = true) {
+  const application = assertApplicationRecord(await readNote(applicationPath), "application");
+  assertApplicationRecord(await readNote(documentPath), "document");
+  const current = applicationDocumentPaths(application.data.document_paths);
+  const next = linked ? uniqueStrings([...current, documentPath]) : current.filter((item) => item !== documentPath);
+  if (next.length === current.length && next.every((item, index) => item === current[index])) return application;
+  const data = carryRawFrontmatter(application.data, {
+    ...application.data,
+    document_paths: next,
+    updated: new Date().toISOString(),
+  });
+  await writeRawNote(application.relativePath, data, application.content, { expectedMtime: application.mtime });
+  return readNote(application.relativePath);
 }
 
 function applicationList(value: unknown, max = 30, itemMax = 120) {
@@ -2029,12 +2059,29 @@ export async function updateNote(input: {
   const note = await readNote(input.relativePath);
   if (!note) throw new Error("Note not found");
 
-  const title = input.title.trim() || note.title;
+  let title = input.title.trim() || note.title;
+  let applicationCompany = stringValue(note.data.company);
+  let applicationRole = stringValue(note.data.role);
+  if (applicationRecordType(note) === "application") {
+    const separator = title.indexOf(" · ");
+    if (separator >= 0) {
+      applicationCompany = applicationText(title.slice(0, separator), 160);
+      applicationRole = applicationText(title.slice(separator + 3), 200);
+    } else {
+      applicationRole = applicationText(title, 200);
+    }
+    applicationRole ||= stringValue(note.data.role) || note.title;
+    title = applicationCompany ? `${applicationCompany} · ${applicationRole}` : applicationRole;
+  }
   const data: Record<string, unknown> = carryRawFrontmatter(note.data, {
     ...note.data,
     title,
     updated: new Date().toISOString(),
   });
+  if (applicationRecordType(note) === "application") {
+    data.company = applicationCompany;
+    data.role = applicationRole;
+  }
 
   const nextStatus = normalizeStatus(input.status || note.status);
   const nextContent = syncHeading(input.content, title, note.title);
