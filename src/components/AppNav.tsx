@@ -8,6 +8,7 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   CalendarRange,
+  FileText,
   Home,
   Inbox,
   ListChecks,
@@ -29,7 +30,7 @@ import { useLanguage } from "@/components/LanguageProvider";
 // Lucide SVGs instead of Nerd Font glyphs: private-use-area codepoints render
 // as blank tofu on any machine without a patched font installed.
 type NavEntry = { href: string; label: string; icon: React.ReactNode };
-export type EnabledModules = { finance: boolean; budget: boolean; trail: boolean; business: boolean; revisions: boolean };
+export type EnabledModules = { finance: boolean; budget: boolean; trail: boolean; business: boolean; applications: boolean; revisions: boolean };
 
 const NAV_ORDER_KEY = "sb-nav-order";
 const UTILITY_ORDER_KEY = "sb-nav-utility-order";
@@ -145,7 +146,7 @@ function NewPageButton() {
 // so the same-origin auth check rejects it), which left the sidebar empty.
 export function AppNav({
   customPages = [],
-  modules = { finance: true, budget: true, trail: true, business: true, revisions: false },
+  modules = { finance: true, budget: true, trail: true, business: true, applications: false, revisions: false },
 }: {
   customPages?: CustomPageEntry[];
   modules?: EnabledModules;
@@ -160,6 +161,7 @@ export function AppNav({
     { href: "/tasks", label: t("nav.tasks"), icon: <ListChecks size={15} /> },
     { href: "/objectives", label: t("nav.objectives"), icon: <Target size={15} /> },
     ...(modules.business ? [{ href: "/business", label: t("nav.business"), icon: <BriefcaseBusiness size={15} /> }] : []),
+    ...(modules.applications ? [{ href: "/applications", label: t("nav.applications"), icon: <FileText size={15} /> }] : []),
     ...(modules.finance ? [{ href: "/finances", label: t("nav.finances"), icon: <Wallet size={15} /> }] : []),
     ...(modules.budget ? [{ href: "/budget", label: t("nav.budget"), icon: <WalletCards size={15} /> }] : []),
     ...(modules.trail ? [{ href: "/training", label: t("nav.trail"), icon: <Mountain size={15} /> }] : []),

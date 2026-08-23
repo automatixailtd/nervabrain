@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Activity, BookOpenCheck, BriefcaseBusiness, Check, Landmark, RefreshCw, Save, WalletCards } from "lucide-react";
+import { Activity, BookOpenCheck, BriefcaseBusiness, Check, FileText, Landmark, RefreshCw, Save, WalletCards } from "lucide-react";
 import { saveModuleSettingsAction } from "@/app/actions";
 import { useLanguage } from "@/components/LanguageProvider";
 import type { TranslationKey } from "@/lib/i18n";
 import type { SetupState } from "@/lib/vault";
 
-type ModuleKey = "finance" | "budget" | "trail" | "business" | "revisions";
+type ModuleKey = "finance" | "budget" | "trail" | "business" | "applications" | "revisions";
 
 const MODULES: Array<{
   key: ModuleKey;
@@ -19,6 +19,7 @@ const MODULES: Array<{
   { key: "budget", label: "setup.module.budget", description: "setup.module.budgetDescription", icon: WalletCards },
   { key: "trail", label: "setup.module.trail", description: "setup.module.trailDescription", icon: Activity },
   { key: "business", label: "setup.module.business", description: "setup.module.businessDescription", icon: BriefcaseBusiness },
+  { key: "applications", label: "setup.module.applications", description: "setup.module.applicationsDescription", icon: FileText },
   { key: "revisions", label: "setup.module.revisions", description: "setup.module.revisionsDescription", icon: BookOpenCheck },
 ];
 
@@ -29,6 +30,7 @@ export function ModuleSettings({ modules: initialModules }: { modules: SetupStat
     budget: initialModules.budget,
     trail: initialModules.trail,
     business: initialModules.business,
+    applications: initialModules.applications,
     revisions: initialModules.revisions,
   });
   // Kept outside MODULES: this switches the Garmin worker off while leaving

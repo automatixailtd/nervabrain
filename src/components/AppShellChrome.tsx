@@ -12,7 +12,7 @@ const SIDEBAR_COLLAPSED_KEY = "second-brain:sidebar-collapsed";
 
 // The shell mounts once in the (shell) route-group layout, so full-bleed is
 // decided per route here instead of per page via props.
-const FULL_BLEED_PREFIXES = ["/doc/", "/edit/", "/p/", "/tasks", "/training", "/business", "/revisions"];
+const FULL_BLEED_PREFIXES = ["/doc/", "/edit/", "/p/", "/tasks", "/training", "/business", "/applications", "/revisions"];
 
 export function AppShellChrome({
   children,

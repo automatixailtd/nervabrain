@@ -30,6 +30,7 @@ export const VAULT_FOLDERS = {
   weekly: "07-Weekly",
   finance: "10-Finance",
   business: "12-Business",
+  applications: "13-Applications",
 } as const;
 
 export const DEFAULT_REVISION_PROJECT_DIR = "08-Projects/Revisions";
@@ -160,6 +161,7 @@ const FOLDER_KIND: Record<VaultFolder, string> = {
   weekly: "weekly",
   finance: "finance-position",
   business: "business-record",
+  applications: "job-application",
 };
 
 const FINANCE_ASSET_TYPES = new Set(["etf", "stock", "crypto", "savings", "life_insurance", "real_estate", "bonds", "other"]);
@@ -170,6 +172,31 @@ export const BUSINESS_INVOICE_STATUSES = ["draft", "sent", "paid"] as const;
 export type BusinessInvoiceStatus = (typeof BUSINESS_INVOICE_STATUSES)[number];
 export type BusinessSettings = { currency: string; monthlyRevenueGoal: number };
 const BUSINESS_SETTINGS_NOTE = `${VAULT_FOLDERS.system}/Business.md`;
+
+export const APPLICATION_STAGES = ["new", "preparing", "applied", "interview", "offer", "accepted", "rejected", "withdrawn", "ignored"] as const;
+export type ApplicationStage = (typeof APPLICATION_STAGES)[number];
+export const APPLICATION_DOCUMENT_KINDS = ["cv", "cover_letter", "portfolio", "other"] as const;
+export type ApplicationDocumentKind = (typeof APPLICATION_DOCUMENT_KINDS)[number];
+export type JobWatchSettings = {
+  enabled: boolean;
+  feeds: string[];
+  keywords: string[];
+  excludedKeywords: string[];
+  locations: string[];
+  remoteOnly: boolean;
+  lastRun: string;
+  lastCount: number;
+  lastError: string;
+  seenIds: string[];
+  relativePath: string;
+};
+export type JobWatchResult = {
+  ranAt: string;
+  added: number;
+  perFeed: Record<string, { added: number; error?: string }>;
+};
+const APPLICATIONS_SETTINGS_NOTE = `${VAULT_FOLDERS.system}/Applications.md`;
+let jobWatchRunning = false;
 
 const WIKILINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
 const DECORATIVE_EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]\uFE0F?/gu;
@@ -249,7 +276,7 @@ export type SetupState = {
     operatingRules: string[];
     currentPriorities: string[];
   };
-  modules: { finance: boolean; budget: boolean; trail: boolean; trailSync: boolean; business: boolean; revisions: boolean; custom: string[] };
+  modules: { finance: boolean; budget: boolean; trail: boolean; trailSync: boolean; business: boolean; applications: boolean; revisions: boolean; custom: string[] };
   feeds: { enabled: boolean; urls: string[] };
   ai: {
     primary: "" | AiProvider;
@@ -399,7 +426,7 @@ function defaultSetupState(): SetupState {
       operatingRules: [],
       currentPriorities: [],
     },
-    modules: { finance: false, budget: false, trail: false, trailSync: true, business: false, revisions: false, custom: [] },
+    modules: { finance: false, budget: false, trail: false, trailSync: true, business: false, applications: false, revisions: false, custom: [] },
     feeds: { enabled: false, urls: [] },
     ai: { primary: "", fallback: "", verified: [], models: { claude: "", codex: "" } },
     automation: {
@@ -491,6 +518,7 @@ function normalizeSetupState(value: unknown, legacyCompleted = false): SetupStat
       // Absent on profiles saved before the toggle existed: keep syncing.
       trailSync: typeof modules.trailSync === "boolean" ? modules.trailSync : true,
       business: typeof modules.business === "boolean" ? modules.business : false,
+      applications: typeof modules.applications === "boolean" ? modules.applications : false,
       revisions: typeof modules.revisions === "boolean"
         ? modules.revisions
         : Boolean(process.env.REVISION_PROJECT_DIR?.trim()
@@ -1647,6 +1675,285 @@ export async function updateBusinessInvoiceStatus(relativePath: string, statusVa
 export async function deleteBusinessRecord(relativePath: string) {
   assertBusinessRecord(await readNote(relativePath));
   await deleteNote(relativePath);
+}
+
+function applicationText(value: string | undefined, max = 200) {
+  return (value || "").replace(/[\r\n]+/g, " ").trim().slice(0, max);
+}
+
+function applicationUrl(value?: string) {
+  const clean = value?.trim() || "";
+  if (!clean) return "";
+  if (clean.length > 2_000) throw new Error("URL trop longue");
+  let url: URL;
+  try {
+    url = new URL(clean);
+  } catch {
+    throw new Error("URL invalide");
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
+    throw new Error("URL HTTP(S) publique requise");
+  }
+  return url.toString();
+}
+
+function applicationStage(value?: string): ApplicationStage {
+  return APPLICATION_STAGES.includes(value as ApplicationStage) ? value as ApplicationStage : "new";
+}
+
+function applicationRecordType(note: VaultNote) {
+  return stringValue(note.data.record_type);
+}
+
+export async function listApplicationRecords() {
+  const notes = await listNotes("applications");
+  return notes
+    .filter((note) => applicationRecordType(note) === "application" || applicationRecordType(note) === "document")
+    .sort((a, b) => stringValue(b.data.updated).localeCompare(stringValue(a.data.updated)) || a.title.localeCompare(b.title));
+}
+
+export async function createApplication(input: {
+  company?: string;
+  role: string;
+  location?: string;
+  offerUrl?: string;
+  source?: string;
+  sourceUrl?: string;
+  externalId?: string;
+  stage?: string;
+  foundOn?: string;
+  appliedOn?: string;
+  nextAction?: string;
+  nextActionDate?: string;
+  cvUrl?: string;
+  coverLetterUrl?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactUrl?: string;
+  notes?: string;
+}) {
+  const company = applicationText(input.company, 160);
+  const role = applicationText(input.role, 200);
+  if (!role) throw new Error("Poste requis");
+  const stage = applicationStage(input.stage);
+  const foundOn = businessDate(input.foundOn) || todayISO();
+  const appliedOn = businessDate(input.appliedOn)
+    || (["applied", "interview", "offer", "accepted", "rejected"].includes(stage) ? todayISO() : "");
+  const title = company ? `${company} · ${role}` : role;
+  const offerUrl = applicationUrl(input.offerUrl);
+  const cvUrl = applicationUrl(input.cvUrl);
+  const coverLetterUrl = applicationUrl(input.coverLetterUrl);
+  const contactUrl = applicationUrl(input.contactUrl);
+  return writeNote("applications", {
+    title,
+    data: {
+      type: "job-application",
+      record_type: "application",
+      status: "active",
+      stage,
+      company,
+      role,
+      location: applicationText(input.location, 160),
+      offer_url: offerUrl,
+      source: applicationText(input.source, 80) || "manual",
+      source_url: applicationUrl(input.sourceUrl),
+      external_id: applicationText(input.externalId, 500),
+      found_on: foundOn,
+      applied_on: appliedOn,
+      next_action: applicationText(input.nextAction, 300),
+      next_action_date: businessDate(input.nextActionDate),
+      cv_url: cvUrl,
+      cover_letter_url: coverLetterUrl,
+      contact_name: applicationText(input.contactName, 160),
+      contact_email: applicationText(input.contactEmail, 254),
+      contact_url: contactUrl,
+      tags: ["candidature"],
+    },
+    body: [
+      `# ${title}`,
+      "",
+      "## Liens",
+      offerUrl ? `- [Offre](${offerUrl})` : "- Offre : non renseignée",
+      cvUrl ? `- [CV](${cvUrl})` : "- CV : non renseigné",
+      coverLetterUrl ? `- [Lettre de motivation](${coverLetterUrl})` : "- Lettre de motivation : non renseignée",
+      "",
+      "## Notes",
+      input.notes?.trim().slice(0, 8_000) || "",
+    ].join("\n"),
+  });
+}
+
+export async function createApplicationDocument(input: {
+  name: string;
+  kind?: string;
+  url: string;
+  version?: string;
+  notes?: string;
+}) {
+  const name = applicationText(input.name, 200);
+  if (!name) throw new Error("Nom du document requis");
+  const kind = APPLICATION_DOCUMENT_KINDS.includes(input.kind as ApplicationDocumentKind)
+    ? input.kind as ApplicationDocumentKind
+    : "other";
+  const url = applicationUrl(input.url);
+  if (!url) throw new Error("Lien du document requis");
+  return writeNote("applications", {
+    title: name,
+    data: {
+      type: "application-document",
+      record_type: "document",
+      status: "active",
+      document_kind: kind,
+      document_url: url,
+      version: applicationText(input.version, 120),
+      tags: ["candidature", "document"],
+    },
+    body: [`# ${name}`, "", `[Ouvrir le document](${url})`, "", "## Notes", input.notes?.trim().slice(0, 4_000) || ""].join("\n"),
+  });
+}
+
+export async function updateApplicationStage(relativePath: string, stageValue: string) {
+  const note = await readNote(relativePath);
+  if (!note || note.kind !== "job-application" || applicationRecordType(note) !== "application") {
+    throw new Error("Candidature introuvable");
+  }
+  if (!APPLICATION_STAGES.includes(stageValue as ApplicationStage)) throw new Error("Étape invalide");
+  const stage = stageValue as ApplicationStage;
+  const data: Record<string, unknown> = carryRawFrontmatter(note.data, {
+    ...note.data,
+    stage,
+    applied_on: stringValue(note.data.applied_on)
+      || (["applied", "interview", "offer", "accepted", "rejected"].includes(stage) ? todayISO() : ""),
+    updated: new Date().toISOString(),
+  });
+  await writeRawNote(note.relativePath, data, note.content, { expectedMtime: note.mtime });
+  return readNote(note.relativePath);
+}
+
+function applicationList(value: unknown, max = 30, itemMax = 120) {
+  return uniqueStrings((Array.isArray(value) ? value : String(value || "").split(/\r?\n|,/))
+    .map((item) => applicationText(String(item), itemMax))
+    .filter(Boolean)).slice(0, max);
+}
+
+export async function readJobWatchSettings(): Promise<JobWatchSettings> {
+  const note = await readNote(APPLICATIONS_SETTINGS_NOTE);
+  return {
+    enabled: note?.data.enabled === true,
+    feeds: setupUrls(note?.data.feeds),
+    keywords: applicationList(note?.data.keywords),
+    excludedKeywords: applicationList(note?.data.excluded_keywords),
+    locations: applicationList(note?.data.locations),
+    remoteOnly: note?.data.remote_only === true,
+    lastRun: stringValue(note?.data.last_run),
+    lastCount: Math.max(0, Number(note?.data.last_count) || 0),
+    lastError: stringValue(note?.data.last_error),
+    seenIds: applicationList(note?.data.seen_ids, 1_000, 2_500),
+    relativePath: APPLICATIONS_SETTINGS_NOTE,
+  };
+}
+
+export async function saveJobWatchSettings(input: Omit<JobWatchSettings, "relativePath">): Promise<JobWatchSettings> {
+  const feeds = uniqueStrings(input.feeds.map(applicationUrl).filter(Boolean)).slice(0, 30);
+  const existing = await readNote(APPLICATIONS_SETTINGS_NOTE);
+  const now = new Date().toISOString();
+  const settings: JobWatchSettings = {
+    enabled: Boolean(input.enabled),
+    feeds,
+    keywords: applicationList(input.keywords),
+    excludedKeywords: applicationList(input.excludedKeywords),
+    locations: applicationList(input.locations),
+    remoteOnly: Boolean(input.remoteOnly),
+    lastRun: input.lastRun || "",
+    lastCount: Math.max(0, Math.round(input.lastCount || 0)),
+    lastError: applicationText(input.lastError, 1_000),
+    seenIds: applicationList(input.seenIds, 1_000, 2_500),
+    relativePath: APPLICATIONS_SETTINGS_NOTE,
+  };
+  await writeRawNote(APPLICATIONS_SETTINGS_NOTE, carryRawFrontmatter(existing?.data || {}, {
+    type: "application-settings",
+    title: "Candidatures",
+    status: "active",
+    enabled: settings.enabled,
+    feeds: settings.feeds,
+    keywords: settings.keywords,
+    excluded_keywords: settings.excludedKeywords,
+    locations: settings.locations,
+    remote_only: settings.remoteOnly,
+    last_run: settings.lastRun,
+    last_count: settings.lastCount,
+    last_error: settings.lastError,
+    seen_ids: settings.seenIds,
+    created: existing?.data.created || now,
+    updated: now,
+  }), ["# Candidatures", "", "Configuration de la veille d’offres RSS/Atom."].join("\n"), { expectedMtime: existing?.mtime });
+  return settings;
+}
+
+function normalizedJobText(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+export function matchesJobWatch(item: { title: string; summary?: string }, settings: JobWatchSettings) {
+  const text = normalizedJobText(`${item.title} ${item.summary || ""}`);
+  const includes = settings.keywords.map(normalizedJobText);
+  const excludes = settings.excludedKeywords.map(normalizedJobText);
+  const locations = settings.locations.map(normalizedJobText);
+  // ponytail: text matching is intentionally naive; add per-source structured fields when a chosen ATS proves it insufficient.
+  return (!includes.length || includes.some((keyword) => text.includes(keyword)))
+    && !excludes.some((keyword) => text.includes(keyword))
+    && (!locations.length || locations.some((location) => text.includes(location)))
+    && (!settings.remoteOnly || /\b(remote|teletravail|home office|hybride|hybrid)\b/.test(text));
+}
+
+export async function ingestJobFeeds(options: { force?: boolean } = {}): Promise<JobWatchResult> {
+  const ranAt = new Date().toISOString();
+  if (jobWatchRunning) return { ranAt, added: 0, perFeed: {} };
+  jobWatchRunning = true;
+  try {
+    const settings = await readJobWatchSettings();
+    if (!settings.enabled && !options.force) return { ranAt, added: 0, perFeed: {} };
+    const seen = new Set(settings.seenIds);
+    const perFeed: JobWatchResult["perFeed"] = {};
+    let added = 0;
+
+    for (const feed of settings.feeds) {
+      try {
+        const items = await fetchFeed(feed);
+        const fresh = items.filter((item) => item.id && !seen.has(`${feed}|${item.id}`));
+        const matches = fresh.filter((item) => matchesJobWatch(item, settings)).slice(0, 10);
+        for (const item of matches) {
+          await createApplication({
+            company: feedHost(feed),
+            role: item.title || `Offre de ${feedHost(feed)}`,
+            offerUrl: item.link,
+            source: "rss",
+            sourceUrl: feed,
+            externalId: item.id,
+            foundOn: businessDate(item.published?.slice(0, 10)) || todayISO(),
+            notes: item.summary,
+          });
+        }
+        for (const item of items) if (item.id) seen.add(`${feed}|${item.id}`);
+        perFeed[feed] = { added: matches.length };
+        added += matches.length;
+      } catch (error) {
+        perFeed[feed] = { added: 0, error: error instanceof Error ? error.message : "fetch failed" };
+      }
+    }
+
+    const errors = Object.entries(perFeed).filter(([, result]) => result.error).map(([feed, result]) => `${feed}: ${result.error}`);
+    await saveJobWatchSettings({
+      ...settings,
+      lastRun: ranAt,
+      lastCount: added,
+      lastError: errors.join(" · "),
+      seenIds: [...seen].slice(-1_000),
+    });
+    return { ranAt, added, perFeed };
+  } finally {
+    jobWatchRunning = false;
+  }
 }
 
 export async function createRawNote(input: {
@@ -4044,7 +4351,7 @@ type AiChatResponse = {
 };
 
 const MODEL_ID_RE = /^[a-zA-Z0-9._:/@-]{1,160}$/;
-const ASSISTANT_EDIT_ROOTS = ["02-Raw/", "03-Wiki/", "05-Tasks/", "08-Projects/", "10-Finance/", "11-Custom/", "12-Business/"];
+const ASSISTANT_EDIT_ROOTS = ["02-Raw/", "03-Wiki/", "05-Tasks/", "08-Projects/", "10-Finance/", "11-Custom/", "12-Business/", "13-Applications/"];
 const TRAINING_PLAN_PATH = "08-Projects/Training/plan-data.json";
 
 export function assistantEditRequested(question: string) {

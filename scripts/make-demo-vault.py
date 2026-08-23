@@ -26,7 +26,7 @@ random.seed(20260817)
 FOLDERS = [
     "00-System", "01-Inbox", "02-Raw", "03-Wiki", "04-Objectives", "05-Tasks",
     "06-Daily", "07-Weekly", "08-Projects/Trail-26K", "08-Projects/Training",
-    "09-Skills", "10-Finance", "11-Custom/_registry", "12-Business", "_Archive",
+    "09-Skills", "10-Finance", "11-Custom/_registry", "12-Business", "13-Applications", "_Archive",
 ]
 
 

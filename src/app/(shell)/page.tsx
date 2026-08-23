@@ -203,6 +203,7 @@ export default async function DashboardPage() {
     setup.modules.finance,
     setup.modules.budget,
     setup.modules.business,
+    setup.modules.applications,
     setup.modules.trail,
     setup.modules.revisions,
   ].filter(Boolean).length + setup.modules.custom.length;

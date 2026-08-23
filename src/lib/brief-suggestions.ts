@@ -55,7 +55,7 @@ const KINDS = new Set<BriefSuggestionKind>([
  * (Context.md is refresh-context's business alone), 06-Daily and 07-Weekly
  * (generated notes the user edits by hand), and _Archive (frozen history).
  */
-const EXECUTABLE_EDIT_ROOTS = ["02-Raw/", "03-Wiki/", "05-Tasks/", "08-Projects/", "10-Finance/", "11-Custom/", "12-Business/"];
+const EXECUTABLE_EDIT_ROOTS = ["02-Raw/", "03-Wiki/", "05-Tasks/", "08-Projects/", "10-Finance/", "11-Custom/", "12-Business/", "13-Applications/"];
 const MAX_EDITS = 4;
 const MAX_EDIT_CONTENT = 20_000;
 const PRIORITIES = new Set(["low", "medium", "high"]);

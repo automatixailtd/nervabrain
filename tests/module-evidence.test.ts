@@ -45,6 +45,7 @@ const allModules = (state: SetupState): SetupState["modules"] => ({
   finance: true,
   budget: true,
   business: true,
+  applications: true,
   trail: true, trailSync: true,
   revisions: true,
   custom: ["Laboratoire"],
@@ -89,7 +90,7 @@ test("active module evidence covers every living Markdown folder, opt-in custom 
 
 test("module evidence stays bounded on a large Markdown index", () => {
   const modules: SetupState["modules"] = {
-    finance: true, budget: true, business: true, trail: true, trailSync: true, revisions: true, custom: [],
+    finance: true, budget: true, business: true, applications: true, trail: true, trailSync: true, revisions: true, custom: [],
   };
   const prefixes = ["10-Finance", "12-Business", "08-Projects/Training", "08-Projects/Revisions"];
   const notes: VaultNote[] = Array.from({ length: 20_000 }, (_, index) => {
@@ -146,7 +147,7 @@ test("module evidence preserves the newest entries at the end of chronological j
     mtime: "2026-07-26T21:42:32.000Z",
   };
   const evidence = activeModuleEvidence([note], {
-    finance: false, budget: false, business: false, trail: true, trailSync: true, revisions: false, custom: [],
+    finance: false, budget: false, business: false, applications: false, trail: true, trailSync: true, revisions: false, custom: [],
   });
   const content = evidence.training?.notes[0]?.content || "";
 

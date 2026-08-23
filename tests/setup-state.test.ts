@@ -43,7 +43,7 @@ test("a fresh seeded vault starts setup at the language step", () => scratchVaul
     { provider: "", model: "", prompt: "" },
   );
   assert.deepEqual(state.ai.models, { claude: "", codex: "" });
-  assert.deepEqual(state.modules, { finance: false, budget: false, trail: false, trailSync: true, business: false, revisions: false, custom: [] });
+  assert.deepEqual(state.modules, { finance: false, budget: false, trail: false, trailSync: true, business: false, applications: false, revisions: false, custom: [] });
   assert.equal((await listNotes("objectives")).length, 0);
   assert.equal((await listNotes("tasks")).length, 0);
   assert.equal(JSON.parse(await fs.readFile(path.join(root, ".second-brain-setup.json"), "utf8")).version, 1);
@@ -136,12 +136,12 @@ test("a setup draft resumes from its saved step", () => scratchVault(async () =>
     ...state,
     currentStep: "feeds",
     locale: "en",
-    modules: { finance: true, budget: false, trail: true, trailSync: true, business: true, revisions: true, custom: [] },
+    modules: { finance: true, budget: false, trail: true, trailSync: true, business: true, applications: true, revisions: true, custom: [] },
   });
   const resumed = await readSetupState();
   assert.equal(resumed.currentStep, "feeds");
   assert.equal(resumed.locale, "en");
-  assert.deepEqual(resumed.modules, { finance: true, budget: false, trail: true, trailSync: true, business: true, revisions: true, custom: [] });
+  assert.deepEqual(resumed.modules, { finance: true, budget: false, trail: true, trailSync: true, business: true, applications: true, revisions: true, custom: [] });
 }));
 
 test("an existing non-placeholder Context.md migrates as completed", () => scratchVault(async (root) => {
@@ -150,7 +150,7 @@ test("an existing non-placeholder Context.md migrates as completed", () => scrat
   await fs.writeFile(path.join(system, "Context.md"), "# System Context\n\n## Identity\nA real existing profile.\n", "utf8");
   const state = await readSetupState();
   assert.equal(state.status, "completed");
-  assert.deepEqual(state.modules, { finance: true, budget: true, trail: true, trailSync: true, business: false, revisions: false, custom: [] });
+  assert.deepEqual(state.modules, { finance: true, budget: true, trail: true, trailSync: true, business: false, applications: false, revisions: false, custom: [] });
 }));
 
 test("a Context.md completion marker wins even when its body is a placeholder", () => scratchVault(async (root) => {
@@ -188,7 +188,7 @@ test("editing a completed legacy setup keeps access and preserves its context bo
   await saveSetupState({
     ...migrated,
     currentStep: "feeds",
-    modules: { finance: true, budget: false, trail: false, trailSync: true, business: false, revisions: false, custom: [] },
+    modules: { finance: true, budget: false, trail: false, trailSync: true, business: false, applications: false, revisions: false, custom: [] },
     ai: { primary: "codex", fallback: "", verified: [], models: { claude: "", codex: "" } },
   });
 

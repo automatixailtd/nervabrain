@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Activity, BookOpenCheck, BriefcaseBusiness, Check, Landmark, Plus, WalletCards, X } from "lucide-react";
+import { Activity, BookOpenCheck, BriefcaseBusiness, Check, FileText, Landmark, Plus, WalletCards, X } from "lucide-react";
 import { completeSetupAction, saveAiCredentialAction, saveSetupStepAction, verifyAiConnectionAction, type VerifyFailureReason } from "@/app/actions";
 import { AiProviderLogo } from "@/components/AiProviderLogo";
 import { CustomSelect } from "@/components/CustomSelect";
@@ -200,13 +200,14 @@ function ContextStep({ state }: { state: SetupState["context"] }) {
 
 function ModuleStep({ state }: { state: SetupState }) {
   const { t } = useLanguage();
-  const [modules, setModules] = useState({ finance: state.modules.finance, budget: state.modules.budget, trail: state.modules.trail, business: state.modules.business, revisions: state.modules.revisions });
+  const [modules, setModules] = useState({ finance: state.modules.finance, budget: state.modules.budget, trail: state.modules.trail, business: state.modules.business, applications: state.modules.applications, revisions: state.modules.revisions });
   const [customModules, setCustomModules] = useState(state.modules.custom);
   const [customTitle, setCustomTitle] = useState("");
   const financeEnabled = modules.finance || modules.budget || modules.business;
   const moduleCards = [
     { key: "trail" as const, icon: <Activity size={20} />, label: "setup.module.trail", description: "setup.module.trailDescription" },
     { key: "business" as const, icon: <BriefcaseBusiness size={20} />, label: "setup.module.business", description: "setup.module.businessDescription" },
+    { key: "applications" as const, icon: <FileText size={20} />, label: "setup.module.applications", description: "setup.module.applicationsDescription" },
     { key: "revisions" as const, icon: <BookOpenCheck size={20} />, label: "setup.module.revisions", description: "setup.module.revisionsDescription" },
     { key: "finance" as const, icon: <Landmark size={20} />, label: "setup.module.finance", description: "setup.module.financeDescription" },
     { key: "budget" as const, icon: <WalletCards size={20} />, label: "setup.module.budget", description: "setup.module.budgetDescription" },
@@ -535,6 +536,7 @@ export function SetupWizard({ step, state, error, bridge }: { step: SetupStep; s
   const moduleNames = [
     state.modules.trail && t("setup.module.trail"),
     state.modules.business && t("setup.module.business"),
+    state.modules.applications && t("setup.module.applications"),
     state.modules.revisions && t("setup.module.revisions"),
     state.modules.finance && t("setup.module.finance"),
     state.modules.budget && t("setup.module.budget"),

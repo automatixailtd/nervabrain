@@ -2,17 +2,25 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
   const minutes = Number(process.env.RSS_POLL_MINUTES ?? 30);
-  const { ingestFeeds, readNote, readSetupState } = await import("@/lib/vault");
+  const { ingestFeeds, ingestJobFeeds, readNote, readSetupState } = await import("@/lib/vault");
   const { briefScheduleSlot } = await import("@/lib/brief-schedule");
   const { mkdir, readFile, writeFile } = await import("node:fs/promises");
   const { join } = await import("node:path");
   const briefMarker = join(process.cwd(), "data", "brief-schedule-slot");
   if (Number.isFinite(minutes) && minutes > 0) {
-    const runFeeds = () => ingestFeeds()
-      .then((result) => { if (result.added) console.log(`[rss] ingested ${result.added} new item(s)`); })
+    const runFeeds = async () => {
+      const setup = await readSetupState();
+      const [rss, jobs] = await Promise.all([
+        ingestFeeds(),
+        setup.modules.applications ? ingestJobFeeds() : null,
+      ]);
+      if (rss.added) console.log(`[rss] ingested ${rss.added} new item(s)`);
+      if (jobs?.added) console.log(`[jobs] ingested ${jobs.added} new offer(s)`);
+    };
+    const pollFeeds = () => runFeeds()
       .catch((error) => console.error("[rss] ingest failed:", error));
-    setTimeout(runFeeds, 15_000);
-    setInterval(runFeeds, minutes * 60_000);
+    setTimeout(pollFeeds, 15_000);
+    setInterval(pollFeeds, minutes * 60_000);
   }
 
   let runningBrief = false;

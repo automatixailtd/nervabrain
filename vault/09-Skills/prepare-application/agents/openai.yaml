@@ -1,0 +1,4 @@
+interface:
+  display_name: "Préparer une candidature"
+  short_description: "Prépare CV, lettre et suivi sans envoyer"
+  default_prompt: "Utilise $prepare-application pour préparer cette candidature sans la soumettre."

@@ -37,6 +37,12 @@ import {
   updateBusinessInvoiceStatus,
   deleteBusinessRecord,
   saveBusinessSettings,
+  createApplication,
+  createApplicationDocument,
+  updateApplicationStage,
+  readJobWatchSettings,
+  saveJobWatchSettings,
+  ingestJobFeeds,
   createCustomPage,
   archiveCustomPage,
   createCustomPageEntry,
@@ -202,6 +208,7 @@ export async function saveModuleSettingsAction(formData: FormData) {
       trail: checkbox(formData, "trail"),
       trailSync: checkbox(formData, "trailSync"),
       business: checkbox(formData, "business"),
+      applications: checkbox(formData, "applications"),
       revisions: checkbox(formData, "revisions"),
     },
   });
@@ -289,6 +296,7 @@ function revalidateApp() {
   revalidatePath("/finances");
   revalidatePath("/budget");
   revalidatePath("/business");
+  revalidatePath("/applications");
   revalidatePath("/revisions");
   revalidatePath("/setup");
 }
@@ -451,6 +459,7 @@ export async function saveSetupStepAction(formData: FormData) {
       trail: checkbox(formData, "trail"),
       trailSync: state.modules.trailSync,
       business,
+      applications: checkbox(formData, "applications"),
       revisions: checkbox(formData, "revisions"),
       custom,
     }, currency };
@@ -645,6 +654,89 @@ export async function saveBusinessSettingsAction(formData: FormData) {
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Impossible d’enregistrer l’objectif" };
+  }
+}
+
+export async function createApplicationAction(formData: FormData) {
+  const email = text(formData, "contactEmail");
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "Adresse e-mail invalide" };
+  try {
+    await createApplication({
+      company: text(formData, "company"),
+      role: text(formData, "role"),
+      location: text(formData, "location"),
+      offerUrl: text(formData, "offerUrl"),
+      stage: text(formData, "stage"),
+      foundOn: text(formData, "foundOn"),
+      appliedOn: text(formData, "appliedOn"),
+      nextAction: text(formData, "nextAction"),
+      nextActionDate: text(formData, "nextActionDate"),
+      cvUrl: text(formData, "cvUrl"),
+      coverLetterUrl: text(formData, "coverLetterUrl"),
+      contactName: text(formData, "contactName"),
+      contactEmail: email,
+      contactUrl: text(formData, "contactUrl"),
+      notes: text(formData, "notes"),
+    });
+    revalidatePath("/applications");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Impossible d’ajouter la candidature" };
+  }
+}
+
+export async function createApplicationDocumentAction(formData: FormData) {
+  try {
+    await createApplicationDocument({
+      name: text(formData, "name"),
+      kind: text(formData, "kind"),
+      url: text(formData, "url"),
+      version: text(formData, "version"),
+      notes: text(formData, "notes"),
+    });
+    revalidatePath("/applications");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Impossible d’ajouter le document" };
+  }
+}
+
+export async function updateApplicationStageAction(formData: FormData) {
+  try {
+    await updateApplicationStage(text(formData, "path"), text(formData, "stage"));
+    revalidatePath("/applications");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Impossible de modifier la candidature" };
+  }
+}
+
+export async function saveJobWatchSettingsAction(formData: FormData) {
+  try {
+    const current = await readJobWatchSettings();
+    await saveJobWatchSettings({
+      ...current,
+      enabled: checkbox(formData, "enabled"),
+      feeds: lines(text(formData, "feeds")),
+      keywords: lines(text(formData, "keywords")),
+      excludedKeywords: lines(text(formData, "excludedKeywords")),
+      locations: lines(text(formData, "locations")),
+      remoteOnly: checkbox(formData, "remoteOnly"),
+    });
+    revalidatePath("/applications");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Impossible d’enregistrer la veille" };
+  }
+}
+
+export async function refreshJobFeedsAction() {
+  try {
+    const result = await ingestJobFeeds({ force: true });
+    revalidatePath("/applications");
+    return { ok: true, added: result.added };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Impossible d’actualiser les offres" };
   }
 }
 
