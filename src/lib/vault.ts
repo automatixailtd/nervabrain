@@ -177,6 +177,26 @@ export const APPLICATION_STAGES = ["new", "preparing", "applied", "interview", "
 export type ApplicationStage = (typeof APPLICATION_STAGES)[number];
 export const APPLICATION_DOCUMENT_KINDS = ["cv", "cover_letter", "portfolio", "other"] as const;
 export type ApplicationDocumentKind = (typeof APPLICATION_DOCUMENT_KINDS)[number];
+type ApplicationInput = {
+  company?: string;
+  role: string;
+  location?: string;
+  offerUrl?: string;
+  source?: string;
+  sourceUrl?: string;
+  externalId?: string;
+  stage?: string;
+  foundOn?: string;
+  appliedOn?: string;
+  nextAction?: string;
+  nextActionDate?: string;
+  cvUrl?: string;
+  coverLetterUrl?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactUrl?: string;
+  notes?: string;
+};
 export type JobWatchSettings = {
   enabled: boolean;
   feeds: string[];
@@ -1726,26 +1746,21 @@ export async function listApplicationRecords() {
     .sort((a, b) => stringValue(b.data.updated).localeCompare(stringValue(a.data.updated)) || a.title.localeCompare(b.title));
 }
 
-export async function createApplication(input: {
-  company?: string;
-  role: string;
-  location?: string;
-  offerUrl?: string;
-  source?: string;
-  sourceUrl?: string;
-  externalId?: string;
-  stage?: string;
-  foundOn?: string;
-  appliedOn?: string;
-  nextAction?: string;
-  nextActionDate?: string;
-  cvUrl?: string;
-  coverLetterUrl?: string;
-  contactName?: string;
-  contactEmail?: string;
-  contactUrl?: string;
-  notes?: string;
-}) {
+function applicationBody(title: string, offerUrl: string, cvUrl: string, coverLetterUrl: string, notes?: string) {
+  return [
+    `# ${title}`,
+    "",
+    "## Liens",
+    offerUrl ? `- [Offre](${offerUrl})` : "- Offre : non renseignée",
+    cvUrl ? `- [CV](${cvUrl})` : "- CV : non renseigné",
+    coverLetterUrl ? `- [Lettre de motivation](${coverLetterUrl})` : "- Lettre de motivation : non renseignée",
+    "",
+    "## Notes",
+    notes?.trim().slice(0, 8_000) || "",
+  ].join("\n");
+}
+
+export async function createApplication(input: ApplicationInput) {
   const company = applicationText(input.company, 160);
   const role = applicationText(input.role, 200);
   if (!role) throw new Error("Poste requis");
@@ -1783,18 +1798,49 @@ export async function createApplication(input: {
       contact_url: contactUrl,
       tags: ["candidature"],
     },
-    body: [
-      `# ${title}`,
-      "",
-      "## Liens",
-      offerUrl ? `- [Offre](${offerUrl})` : "- Offre : non renseignée",
-      cvUrl ? `- [CV](${cvUrl})` : "- CV : non renseigné",
-      coverLetterUrl ? `- [Lettre de motivation](${coverLetterUrl})` : "- Lettre de motivation : non renseignée",
-      "",
-      "## Notes",
-      input.notes?.trim().slice(0, 8_000) || "",
-    ].join("\n"),
+    body: applicationBody(title, offerUrl, cvUrl, coverLetterUrl, input.notes),
   });
+}
+
+export async function updateApplication(relativePath: string, input: ApplicationInput) {
+  const note = assertApplicationRecord(await readNote(relativePath), "application");
+  const company = applicationText(input.company, 160);
+  const role = applicationText(input.role, 200);
+  if (!role) throw new Error("Poste requis");
+  const stage = applicationStage(input.stage);
+  const title = company ? `${company} · ${role}` : role;
+  const offerUrl = applicationUrl(input.offerUrl);
+  const cvUrl = applicationUrl(input.cvUrl);
+  const coverLetterUrl = applicationUrl(input.coverLetterUrl);
+  const data = carryRawFrontmatter(note.data, {
+    ...note.data,
+    title,
+    company,
+    role,
+    location: applicationText(input.location, 160),
+    offer_url: offerUrl,
+    stage,
+    found_on: businessDate(input.foundOn) || stringValue(note.data.found_on) || todayISO(),
+    applied_on: businessDate(input.appliedOn)
+      || (["applied", "interview", "offer", "accepted", "rejected"].includes(stage)
+        ? stringValue(note.data.applied_on) || todayISO()
+        : ""),
+    next_action: applicationText(input.nextAction, 300),
+    next_action_date: businessDate(input.nextActionDate),
+    cv_url: cvUrl,
+    cover_letter_url: coverLetterUrl,
+    contact_name: applicationText(input.contactName, 160),
+    contact_email: applicationText(input.contactEmail, 254),
+    contact_url: input.contactUrl === undefined ? note.data.contact_url : applicationUrl(input.contactUrl),
+    updated: new Date().toISOString(),
+  });
+  await writeRawNote(
+    note.relativePath,
+    data,
+    applicationBody(title, offerUrl, cvUrl, coverLetterUrl, input.notes),
+    { expectedMtime: note.mtime },
+  );
+  return readNote(note.relativePath);
 }
 
 export async function createApplicationDocument(input: {

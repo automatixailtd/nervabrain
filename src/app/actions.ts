@@ -38,6 +38,7 @@ import {
   deleteBusinessRecord,
   saveBusinessSettings,
   createApplication,
+  updateApplication,
   createApplicationDocument,
   linkApplicationDocument,
   updateApplicationStage,
@@ -658,31 +659,45 @@ export async function saveBusinessSettingsAction(formData: FormData) {
   }
 }
 
-export async function createApplicationAction(formData: FormData) {
+function applicationInput(formData: FormData) {
   const email = text(formData, "contactEmail");
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "Adresse e-mail invalide" };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Adresse e-mail invalide");
+  return {
+    company: text(formData, "company"),
+    role: text(formData, "role"),
+    location: text(formData, "location"),
+    offerUrl: text(formData, "offerUrl"),
+    stage: text(formData, "stage"),
+    foundOn: text(formData, "foundOn"),
+    appliedOn: text(formData, "appliedOn"),
+    nextAction: text(formData, "nextAction"),
+    nextActionDate: text(formData, "nextActionDate"),
+    cvUrl: text(formData, "cvUrl"),
+    coverLetterUrl: text(formData, "coverLetterUrl"),
+    contactName: text(formData, "contactName"),
+    contactEmail: email,
+    contactUrl: formData.has("contactUrl") ? text(formData, "contactUrl") : undefined,
+    notes: text(formData, "notes"),
+  };
+}
+
+export async function createApplicationAction(formData: FormData) {
   try {
-    await createApplication({
-      company: text(formData, "company"),
-      role: text(formData, "role"),
-      location: text(formData, "location"),
-      offerUrl: text(formData, "offerUrl"),
-      stage: text(formData, "stage"),
-      foundOn: text(formData, "foundOn"),
-      appliedOn: text(formData, "appliedOn"),
-      nextAction: text(formData, "nextAction"),
-      nextActionDate: text(formData, "nextActionDate"),
-      cvUrl: text(formData, "cvUrl"),
-      coverLetterUrl: text(formData, "coverLetterUrl"),
-      contactName: text(formData, "contactName"),
-      contactEmail: email,
-      contactUrl: text(formData, "contactUrl"),
-      notes: text(formData, "notes"),
-    });
+    await createApplication(applicationInput(formData));
     revalidatePath("/applications");
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Impossible d’ajouter la candidature" };
+  }
+}
+
+export async function updateApplicationAction(formData: FormData) {
+  try {
+    await updateApplication(text(formData, "path"), applicationInput(formData));
+    revalidatePath("/applications");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Impossible de modifier la candidature" };
   }
 }
 

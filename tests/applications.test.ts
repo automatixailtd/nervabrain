@@ -11,6 +11,7 @@ import {
   matchesJobWatch,
   readJobWatchSettings,
   saveJobWatchSettings,
+  updateApplication,
   updateNote,
   updateApplicationStage,
   type JobWatchSettings,
@@ -62,6 +63,26 @@ test("applications keep offer and document links in Markdown and stamp submissio
   assert.match(String(submitted?.data.applied_on), /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(interviewed?.data.applied_on, submitted?.data.applied_on);
   assert.deepEqual((await listApplicationRecords()).map((note) => note.data.record_type).sort(), ["application", "document"]);
+
+  const edited = await updateApplication(application.relativePath, {
+    company: "Infomaniak Network",
+    role: "Platform Engineer",
+    location: "Genève · hybride",
+    offerUrl: "https://example.com/jobs/platform",
+    stage: "interview",
+    foundOn: "2026-08-23",
+    appliedOn: String(interviewed?.data.applied_on),
+    nextAction: "Préparer l’entretien",
+    nextActionDate: "2026-08-28",
+    cvUrl: "https://www.canva.com/design/cv-v4",
+    coverLetterUrl: "https://docs.google.com/document/d/letter-v2",
+    notes: "Échange avec l’équipe plateforme.",
+  });
+  assert.equal(edited?.title, "Infomaniak Network · Platform Engineer");
+  assert.equal(edited?.data.location, "Genève · hybride");
+  assert.equal(edited?.data.offer_url, "https://example.com/jobs/platform");
+  assert.match(edited?.content || "", /\[Offre\]\(https:\/\/example\.com\/jobs\/platform\)/);
+  assert.match(edited?.content || "", /Échange avec l’équipe plateforme/);
 }));
 
 test("job watch validates public HTTP URLs and applies inclusive filters", () => scratchVault(async () => {

@@ -12,6 +12,7 @@ import {
   FileText,
   FolderOpen,
   MapPin,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -25,6 +26,7 @@ import {
   linkApplicationDocumentAction,
   refreshJobFeedsAction,
   saveJobWatchSettingsAction,
+  updateApplicationAction,
   updateApplicationStageAction,
 } from "@/app/actions";
 import { CustomSelect } from "@/components/CustomSelect";
@@ -62,6 +64,9 @@ type Application = {
   nextActionDate: string;
   cvUrl: string;
   coverLetterUrl: string;
+  contactName: string;
+  contactEmail: string;
+  notes: string;
   documentPaths: string[];
 };
 
@@ -93,6 +98,10 @@ function applicationSource(application: Application) {
   const stored = ["manual", "mcp", "vault"].includes(application.source.toLowerCase()) ? "" : application.source;
   const label = host.endsWith("linkedin.com") ? "LinkedIn" : host === "jobup.ch" || host.endsWith(".jobup.ch") ? "JobUp" : stored || host;
   return label ? { host, label } : null;
+}
+
+function applicationNotes(content: string) {
+  return content.match(/(?:^|\n)## Notes\s*\n([\s\S]*)$/)?.[1]?.trim() || "";
 }
 
 function ApplicationSource({ source }: { source: { host: string; label: string } }) {
@@ -128,6 +137,9 @@ function applicationFromNote(note: VaultNote): Application | null {
     nextActionDate: value(note.data.next_action_date),
     cvUrl: value(note.data.cv_url),
     coverLetterUrl: value(note.data.cover_letter_url),
+    contactName: value(note.data.contact_name),
+    contactEmail: value(note.data.contact_email),
+    notes: applicationNotes(note.content),
     documentPaths: Array.isArray(note.data.document_paths) ? note.data.document_paths.map(String) : [],
   };
 }
@@ -149,17 +161,17 @@ function ExternalButton({ href, children }: { href: string; children: React.Reac
   return <a className="applications-link" href={href} target="_blank" rel="noreferrer">{children}<ExternalLink size={13} aria-hidden /></a>;
 }
 
-function ApplicationModal({ kind, today, applications, onClose }: { kind: Exclude<Modal, null>; today: string; applications: Application[]; onClose: () => void }) {
+function ApplicationModal({ kind, today, applications, application, onClose }: { kind: Exclude<Modal, null>; today: string; applications: Application[]; application?: Application | null; onClose: () => void }) {
   const { locale, t } = useLanguage();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
-  const [stage, setStage] = useState<ApplicationStage>("preparing");
+  const [stage, setStage] = useState<ApplicationStage>(application?.stage || "preparing");
   const [documentKind, setDocumentKind] = useState<ApplicationDocumentKind>("cv");
-  const [foundOn, setFoundOn] = useState(today);
-  const [appliedOn, setAppliedOn] = useState("");
-  const [nextActionDate, setNextActionDate] = useState("");
-  const stageOptions = APPLICATION_STAGES.filter((item) => item !== "ignored").map((item) => ({ value: item, label: t(`applications.stage.${item}` as TranslationKey) }));
+  const [foundOn, setFoundOn] = useState(application?.foundOn || today);
+  const [appliedOn, setAppliedOn] = useState(application?.appliedOn || "");
+  const [nextActionDate, setNextActionDate] = useState(application?.nextActionDate || "");
+  const stageOptions = APPLICATION_STAGES.filter((item) => application || item !== "ignored").map((item) => ({ value: item, label: t(`applications.stage.${item}` as TranslationKey) }));
   const documentOptions = APPLICATION_DOCUMENT_KINDS.map((item) => ({ value: item, label: t(`applications.document.${item}` as TranslationKey) }));
   const applicationOptions = [{ value: "", label: t("applications.document.unlinked") }, ...applications.map((item) => ({ value: item.path, label: `${item.company || t("applications.companyUnknown")} · ${item.role}` }))];
 
@@ -176,9 +188,11 @@ function ApplicationModal({ kind, today, applications, onClose }: { kind: Exclud
     setError("");
     const data = new FormData(event.currentTarget);
     startTransition(async () => {
-      const result: ActionResult = kind === "application"
-        ? await createApplicationAction(data)
-        : await createApplicationDocumentAction(data);
+      const result: ActionResult = kind === "document"
+        ? await createApplicationDocumentAction(data)
+        : application
+          ? await updateApplicationAction(data)
+          : await createApplicationAction(data);
       if (!result.ok) return setError(result.error || t("applications.error.save"));
       router.refresh();
       onClose();
@@ -189,30 +203,31 @@ function ApplicationModal({ kind, today, applications, onClose }: { kind: Exclud
     <div className="applications-dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="applications-dialog" role="dialog" aria-modal="true" aria-labelledby="applications-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
         <header>
-          <div><span className="eyebrow">{t("applications.eyebrow")}</span><h2 id="applications-dialog-title">{t(kind === "application" ? "applications.new" : "applications.document.new")}</h2></div>
+          <div><span className="eyebrow">{t("applications.eyebrow")}</span><h2 id="applications-dialog-title">{t(kind === "document" ? "applications.document.new" : application ? "applications.editTitle" : "applications.new")}</h2></div>
           <button type="button" onClick={onClose} aria-label={t("common.close")}><X size={18} aria-hidden /></button>
         </header>
         <form className="applications-form" onSubmit={submit}>
           {kind === "application" ? (
             <>
+              {application ? <input name="path" type="hidden" value={application.path} /> : null}
               <div className="applications-form-grid">
-                <label>{t("applications.field.company")}<input name="company" autoFocus placeholder={t("applications.placeholder.company")} /></label>
-                <label>{t("applications.field.role")}<input name="role" required placeholder={t("applications.placeholder.role")} /></label>
-                <label>{t("applications.field.location")}<input name="location" placeholder={t("applications.placeholder.location")} /></label>
+                <label>{t("applications.field.company")}<input name="company" autoFocus defaultValue={application?.company} placeholder={t("applications.placeholder.company")} /></label>
+                <label>{t("applications.field.role")}<input name="role" required defaultValue={application?.role} placeholder={t("applications.placeholder.role")} /></label>
+                <label>{t("applications.field.location")}<input name="location" defaultValue={application?.location} placeholder={t("applications.placeholder.location")} /></label>
                 <label>{t("applications.field.stage")}<CustomSelect name="stage" options={stageOptions} value={stage} onChange={(next) => setStage(next as ApplicationStage)} /></label>
                 <label>{t("applications.field.foundOn")}<DatePicker name="foundOn" value={foundOn} onChange={setFoundOn} locale={locale} /></label>
                 <label>{t("applications.field.appliedOn")}<DatePicker name="appliedOn" value={appliedOn} onChange={setAppliedOn} locale={locale} /></label>
               </div>
-              <label>{t("applications.field.offerUrl")}<input name="offerUrl" type="url" placeholder="https://…" /></label>
+              <label>{t("applications.field.offerUrl")}<input name="offerUrl" type="url" defaultValue={application?.offerUrl} placeholder="https://…" /></label>
               <div className="applications-form-grid">
-                <label>{t("applications.field.cvUrl")}<input name="cvUrl" type="url" placeholder="https://www.canva.com/…" /></label>
-                <label>{t("applications.field.coverLetterUrl")}<input name="coverLetterUrl" type="url" placeholder="https://docs.google.com/…" /></label>
-                <label>{t("applications.field.nextAction")}<input name="nextAction" placeholder={t("applications.placeholder.nextAction")} /></label>
+                <label>{t("applications.field.cvUrl")}<input name="cvUrl" type="url" defaultValue={application?.cvUrl} placeholder="https://www.canva.com/…" /></label>
+                <label>{t("applications.field.coverLetterUrl")}<input name="coverLetterUrl" type="url" defaultValue={application?.coverLetterUrl} placeholder="https://docs.google.com/…" /></label>
+                <label>{t("applications.field.nextAction")}<input name="nextAction" defaultValue={application?.nextAction} placeholder={t("applications.placeholder.nextAction")} /></label>
                 <label>{t("applications.field.nextActionDate")}<DatePicker name="nextActionDate" value={nextActionDate} onChange={setNextActionDate} locale={locale} /></label>
-                <label>{t("applications.field.contactName")}<input name="contactName" /></label>
-                <label>{t("applications.field.contactEmail")}<input name="contactEmail" type="email" /></label>
+                <label>{t("applications.field.contactName")}<input name="contactName" defaultValue={application?.contactName} /></label>
+                <label>{t("applications.field.contactEmail")}<input name="contactEmail" type="email" defaultValue={application?.contactEmail} /></label>
               </div>
-              <label>{t("applications.field.notes")}<textarea name="notes" rows={4} /></label>
+              <label>{t("applications.field.notes")}<textarea name="notes" rows={4} defaultValue={application?.notes} /></label>
             </>
           ) : (
             <>
@@ -234,7 +249,7 @@ function ApplicationModal({ kind, today, applications, onClose }: { kind: Exclud
   );
 }
 
-function ApplicationRow({ application, documents, today, pending, onStage }: { application: Application; documents: Document[]; today: string; pending: boolean; onStage: (path: string, stage: string) => void }) {
+function ApplicationRow({ application, documents, today, pending, onStage, onEdit }: { application: Application; documents: Document[]; today: string; pending: boolean; onStage: (path: string, stage: string) => void; onEdit: (application: Application) => void }) {
   const { locale, t } = useLanguage();
   const stageOptions = APPLICATION_STAGES.map((item) => ({ value: item, label: t(`applications.stage.${item}` as TranslationKey) }));
   const formatDate = (date: string) => date ? new Intl.DateTimeFormat(locale === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00Z`)) : t("applications.noDate");
@@ -246,6 +261,7 @@ function ApplicationRow({ application, documents, today, pending, onStage }: { a
       <div><CustomSelect name="stage" options={stageOptions} value={application.stage} onChange={(stage) => onStage(application.path, stage)} disabled={pending} /></div>
       <div className={due ? "is-due" : ""}><strong>{application.nextAction || t("applications.noNextAction")}</strong><span>{formatDate(application.nextActionDate || application.appliedOn || application.foundOn)}</span></div>
       <div className="applications-links">
+        <button className="applications-link" type="button" onClick={() => onEdit(application)}><Pencil size={13} aria-hidden />{t("applications.edit")}</button>
         <ExternalButton href={application.offerUrl}>{t("applications.link.offer")}</ExternalButton>
         <ExternalButton href={application.cvUrl}>{t("applications.link.cv")}</ExternalButton>
         <ExternalButton href={application.coverLetterUrl}>{t("applications.link.letter")}</ExternalButton>
@@ -260,6 +276,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("pipeline");
   const [modal, setModal] = useState<Modal>(null);
+  const [editingApplication, setEditingApplication] = useState<Application | null>(null);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<ApplicationStageFilter>("active");
   const [message, setMessage] = useState("");
@@ -282,11 +299,19 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
 
   function openModal(next: Exclude<Modal, null>) {
     modalTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setEditingApplication(null);
     setModal(next);
+  }
+
+  function editApplication(application: Application) {
+    modalTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setEditingApplication(application);
+    setModal("application");
   }
 
   function closeModal() {
     setModal(null);
+    setEditingApplication(null);
     window.requestAnimationFrame(() => modalTrigger.current?.focus());
   }
 
@@ -363,7 +388,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
         <section className="applications-list-section">
           <header><div><span className="eyebrow">{t(tab === "offers" ? "applications.offers.eyebrow" : "applications.pipeline.eyebrow")}</span><h2>{t(tab === "offers" ? "applications.offers.title" : "applications.pipeline.title")}</h2><p>{t(tab === "offers" ? "applications.offers.description" : "applications.pipeline.description")}</p></div></header>
           <div className="applications-list-tools"><label className="applications-search"><Search size={16} aria-hidden /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("applications.search")} /></label>{tab === "pipeline" ? <label className="applications-stage-filter"><span>{t("workspace.status")}</span><CustomSelect name="application-status-filter" options={filterOptions} value={stageFilter} onChange={(value) => setStageFilter(value as ApplicationStageFilter)} /></label> : null}</div>
-          {visible.length ? <><div className="applications-row-head"><span>{t("applications.column.role")}</span><span>{t("applications.column.stage")}</span><span>{t("applications.column.next")}</span><span>{t("applications.column.documents")}</span></div><div className="applications-rows">{visible.map((application) => <ApplicationRow application={application} documents={documents.filter((document) => application.documentPaths.includes(document.path))} today={today} pending={pending} onStage={updateStage} key={application.path} />)}</div></> : <div className="applications-empty"><BriefcaseBusiness size={28} aria-hidden /><h3>{t(tab === "offers" ? "applications.offers.empty" : "applications.pipeline.empty")}</h3><p>{t(tab === "offers" ? "applications.offers.emptyHint" : "applications.pipeline.emptyHint")}</p>{tab === "pipeline" ? <button className="button primary" type="button" onClick={() => openModal("application")}>{t("applications.new")}</button> : null}</div>}
+          {visible.length ? <><div className="applications-row-head"><span>{t("applications.column.role")}</span><span>{t("applications.column.stage")}</span><span>{t("applications.column.next")}</span><span>{t("applications.column.documents")}</span></div><div className="applications-rows">{visible.map((application) => <ApplicationRow application={application} documents={documents.filter((document) => application.documentPaths.includes(document.path))} today={today} pending={pending} onStage={updateStage} onEdit={editApplication} key={application.path} />)}</div></> : <div className="applications-empty"><BriefcaseBusiness size={28} aria-hidden /><h3>{t(tab === "offers" ? "applications.offers.empty" : "applications.pipeline.empty")}</h3><p>{t(tab === "offers" ? "applications.offers.emptyHint" : "applications.pipeline.emptyHint")}</p>{tab === "pipeline" ? <button className="button primary" type="button" onClick={() => openModal("application")}>{t("applications.new")}</button> : null}</div>}
         </section>
       ) : null}
 
@@ -392,7 +417,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
       ) : null}
 
       {message ? <p className="applications-status" role="status">{message}</p> : null}
-      {modal ? <ApplicationModal kind={modal} today={today} applications={applications} onClose={closeModal} /> : null}
+      {modal ? <ApplicationModal kind={modal} today={today} applications={applications} application={editingApplication} onClose={closeModal} /> : null}
     </main>
   );
 }

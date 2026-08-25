@@ -41,6 +41,7 @@ export function CustomSelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const optionsRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const listId = useId();
@@ -77,13 +78,19 @@ export function CustomSelect({
 
   useEffect(() => {
     if (!open) return;
-    const frame = window.requestAnimationFrame(() => (searchable ? searchRef.current : menuRef.current)?.focus());
+    const frame = window.requestAnimationFrame(() => (searchable ? searchRef.current : menuRef.current)?.focus({ preventScroll: true }));
     return () => window.cancelAnimationFrame(frame);
   }, [open, searchable]);
 
   useEffect(() => {
     if (!open) return;
-    optionRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" });
+    const option = optionRefs.current[activeIndex];
+    const scroller = optionsRef.current;
+    if (!option || !scroller) return;
+    const optionRect = option.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    if (optionRect.top < scrollerRect.top) scroller.scrollTop -= scrollerRect.top - optionRect.top;
+    else if (optionRect.bottom > scrollerRect.bottom) scroller.scrollTop += optionRect.bottom - scrollerRect.bottom;
   }, [activeIndex, filteredOptions, open]);
 
   useLayoutEffect(() => {
@@ -221,7 +228,7 @@ export function CustomSelect({
               />
             </label>
           ) : null}
-          <div className="custom-select-options">
+          <div className="custom-select-options" ref={optionsRef}>
           {filteredOptions.map((option, index) => (
             <button
               ref={(node) => { optionRefs.current[index] = node; }}

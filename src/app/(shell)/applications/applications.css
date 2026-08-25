@@ -181,8 +181,10 @@
   border-radius: 10px;
   background: var(--panel-2);
   color: var(--ink-soft);
+  cursor: pointer;
   font-size: 10px;
   font-weight: 620;
+  font-family: inherit;
   padding: 0 10px;
 }
 
