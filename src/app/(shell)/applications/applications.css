@@ -319,6 +319,8 @@
 
 @media (max-width: 620px) {
   .applications-workspace { gap: 14px; }
+  .applications-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .applications-tabs button { justify-content: center; padding: 0 10px; }
   .applications-hero h1 { font-size: 34px; }
   .applications-hero-actions { flex-direction: column-reverse; }
   .applications-hero-actions .button { width: 100%; }

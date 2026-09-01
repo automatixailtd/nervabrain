@@ -279,6 +279,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
   const [tab, setTab] = useState<Tab>("pipeline");
   const [modal, setModal] = useState<Modal>(null);
   const [editingApplication, setEditingApplication] = useState<Application | null>(null);
+  const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<ApplicationStageFilter>("active");
   const [message, setMessage] = useState("");
@@ -343,7 +344,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
   }
 
   function deleteDocument(document: Document) {
-    if (!window.confirm(t("applications.document.deleteConfirm").replace("{name}", document.name))) return;
+    setDocumentToDelete(null);
     const data = new FormData();
     data.set("path", document.path);
     setMessage("");
@@ -418,7 +419,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
               <div><Link href={noteLink(document.path)}>{document.name}</Link><span>{t(`applications.document.${document.kind}` as TranslationKey)}{document.version ? ` · ${document.version}` : ""}</span></div>
               <div className="applications-document-actions">
                 <ExternalButton href={document.url}>{t("applications.link.open")}</ExternalButton>
-                <button className="applications-link is-danger" type="button" disabled={pending} onClick={() => deleteDocument(document)}><Trash2 size={13} aria-hidden />{t("trash.delete")}</button>
+                <button className="applications-link is-danger" type="button" disabled={pending} onClick={() => setDocumentToDelete(document)}><Trash2 size={13} aria-hidden />{t("trash.delete")}</button>
               </div>
               <div className="applications-document-links">
                 <div>{linkedApplications.map((application) => <button type="button" disabled={pending} onClick={() => setDocumentLink(application.path, document.path, false)} aria-label={t("applications.document.unlink").replace("{name}", application.title)} key={application.path}>{application.company || application.role}<X size={12} aria-hidden /></button>)}</div>
@@ -435,6 +436,19 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
 
       {message ? <p className="applications-status" role="status">{message}</p> : null}
       {modal ? <ApplicationModal kind={modal} today={today} applications={applications} application={editingApplication} onClose={closeModal} /> : null}
+      {documentToDelete ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setDocumentToDelete(null)}>
+          <div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="applications-delete-document-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-icon"><Trash2 size={18} aria-hidden /></div>
+            <h3 id="applications-delete-document-title">{t("applications.document.deleteTitle")}</h3>
+            <p className="muted">{t("applications.document.deleteConfirm").replace("{name}", documentToDelete.name)}</p>
+            <div className="modal-actions">
+              <button type="button" className="button" autoFocus onClick={() => setDocumentToDelete(null)}>{t("workspace.cancel")}</button>
+              <button type="button" className="button danger" disabled={pending} onClick={() => deleteDocument(documentToDelete)}>{t("workspace.delete")}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
