@@ -18,11 +18,13 @@ import {
   Search,
   Send,
   Settings2,
+  Trash2,
   X,
 } from "lucide-react";
 import {
   createApplicationAction,
   createApplicationDocumentAction,
+  deleteApplicationDocumentAction,
   linkApplicationDocumentAction,
   refreshJobFeedsAction,
   saveJobWatchSettingsAction,
@@ -340,6 +342,18 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
     });
   }
 
+  function deleteDocument(document: Document) {
+    if (!window.confirm(t("applications.document.deleteConfirm").replace("{name}", document.name))) return;
+    const data = new FormData();
+    data.set("path", document.path);
+    setMessage("");
+    startTransition(async () => {
+      const result = await deleteApplicationDocumentAction(data);
+      if (!result.ok) setMessage(result.error || t("applications.error.documentDelete"));
+      else router.refresh();
+    });
+  }
+
   function saveSources(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -402,7 +416,10 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
             return <article key={document.path}>
               <FileText size={20} aria-hidden />
               <div><Link href={noteLink(document.path)}>{document.name}</Link><span>{t(`applications.document.${document.kind}` as TranslationKey)}{document.version ? ` · ${document.version}` : ""}</span></div>
-              <ExternalButton href={document.url}>{t("applications.link.open")}</ExternalButton>
+              <div className="applications-document-actions">
+                <ExternalButton href={document.url}>{t("applications.link.open")}</ExternalButton>
+                <button className="applications-link is-danger" type="button" disabled={pending} onClick={() => deleteDocument(document)}><Trash2 size={13} aria-hidden />{t("trash.delete")}</button>
+              </div>
               <div className="applications-document-links">
                 <div>{linkedApplications.map((application) => <button type="button" disabled={pending} onClick={() => setDocumentLink(application.path, document.path, false)} aria-label={t("applications.document.unlink").replace("{name}", application.title)} key={application.path}>{application.company || application.role}<X size={12} aria-hidden /></button>)}</div>
                 <CustomSelect name={`link-${document.path}`} options={linkOptions} value="" onChange={(applicationPath) => applicationPath && setDocumentLink(applicationPath, document.path, true)} disabled={pending || !availableApplications.length} searchable />
@@ -413,7 +430,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
       ) : null}
 
       {tab === "sources" ? (
-        <section className="applications-sources"><header><div><span className="eyebrow">{t("applications.sources.eyebrow")}</span><h2>{t("applications.sources.title")}</h2><p>{t("applications.sources.description")}</p></div><button className="button secondary" type="button" onClick={refreshSources} disabled={pending || !watch.feeds.length}><RefreshCw size={16} aria-hidden />{t("applications.sources.refresh")}</button></header><form onSubmit={saveSources}><label className="applications-check"><input name="enabled" type="checkbox" defaultChecked={watch.enabled} /><span><strong>{t("applications.sources.enabled")}</strong><small>{t("applications.sources.enabledHint")}</small></span></label><div className="applications-form-grid"><label>{t("applications.sources.feeds")}<textarea name="feeds" rows={6} defaultValue={watch.feeds.join("\n")} placeholder="https://example.com/jobs.xml" /><small>{t("applications.sources.feedsHint")}</small></label><label>{t("applications.sources.keywords")}<textarea name="keywords" rows={6} defaultValue={watch.keywords.join("\n")} placeholder={t("applications.sources.keywordsPlaceholder")} /><small>{t("applications.sources.keywordsHint")}</small></label><label>{t("applications.sources.excluded")}<textarea name="excludedKeywords" rows={4} defaultValue={watch.excludedKeywords.join("\n")} /><small>{t("applications.sources.excludedHint")}</small></label><label>{t("applications.sources.locations")}<textarea name="locations" rows={4} defaultValue={watch.locations.join("\n")} /><small>{t("applications.sources.locationsHint")}</small></label></div><label className="applications-check"><input name="remoteOnly" type="checkbox" defaultChecked={watch.remoteOnly} /><span><strong>{t("applications.sources.remoteOnly")}</strong><small>{t("applications.sources.remoteOnlyHint")}</small></span></label><footer><span>{t("applications.sources.lastRun").replace("{date}", lastRun).replace("{count}", String(watch.lastCount))}</span><button className="button primary" type="submit" disabled={pending}>{t("applications.sources.save")}</button></footer>{watch.lastError ? <p className="applications-form-error" role="status">{watch.lastError}</p> : null}</form></section>
+        <section className="applications-sources"><header><div><span className="eyebrow">{t("applications.sources.eyebrow")}</span><h2>{t("applications.sources.title")}</h2><p>{t("applications.sources.description")}</p></div><button className="button secondary" type="button" onClick={refreshSources} disabled={pending || !watch.feeds.length}><RefreshCw size={16} aria-hidden />{t("applications.sources.refresh")}</button></header><form onSubmit={saveSources}><label className="applications-check"><input name="enabled" type="checkbox" defaultChecked={watch.enabled} /><span><strong>{t("applications.sources.enabled")}</strong><small>{t("applications.sources.enabledHint")}</small></span></label><div className="applications-form-grid"><label>{t("applications.sources.feeds")}<textarea name="feeds" rows={6} defaultValue={watch.feeds.join("\n")} placeholder="https://careers.example.com/jobs" /><small>{t("applications.sources.feedsHint")}</small></label><label>{t("applications.sources.keywords")}<textarea name="keywords" rows={6} defaultValue={watch.keywords.join("\n")} placeholder={t("applications.sources.keywordsPlaceholder")} /><small>{t("applications.sources.keywordsHint")}</small></label><label>{t("applications.sources.excluded")}<textarea name="excludedKeywords" rows={4} defaultValue={watch.excludedKeywords.join("\n")} /><small>{t("applications.sources.excludedHint")}</small></label><label>{t("applications.sources.locations")}<textarea name="locations" rows={4} defaultValue={watch.locations.join("\n")} /><small>{t("applications.sources.locationsHint")}</small></label></div><label className="applications-check"><input name="remoteOnly" type="checkbox" defaultChecked={watch.remoteOnly} /><span><strong>{t("applications.sources.remoteOnly")}</strong><small>{t("applications.sources.remoteOnlyHint")}</small></span></label><footer><span>{t("applications.sources.lastRun").replace("{date}", lastRun).replace("{count}", String(watch.lastCount))}</span><button className="button primary" type="submit" disabled={pending}>{t("applications.sources.save")}</button></footer>{watch.lastError ? <p className="applications-form-error" role="status">{watch.lastError}</p> : null}</form></section>
       ) : null}
 
       {message ? <p className="applications-status" role="status">{message}</p> : null}

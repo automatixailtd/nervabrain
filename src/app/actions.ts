@@ -40,6 +40,7 @@ import {
   createApplication,
   updateApplication,
   createApplicationDocument,
+  deleteApplicationDocument,
   linkApplicationDocument,
   updateApplicationStage,
   readJobWatchSettings,
@@ -715,6 +716,17 @@ export async function createApplicationDocumentAction(formData: FormData) {
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Impossible d’ajouter le document" };
+  }
+}
+
+export async function deleteApplicationDocumentAction(formData: FormData) {
+  try {
+    await deleteApplicationDocument(text(formData, "path"));
+    revalidatePath("/applications");
+    revalidatePath("/trash");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Impossible de supprimer le document" };
   }
 }
 

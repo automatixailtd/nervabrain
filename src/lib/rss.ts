@@ -9,10 +9,14 @@ export type FeedItem = {
   link: string;
   published?: string;
   summary?: string;
+  company?: string;
+  location?: string;
+  source?: string;
 };
 
 const ITEM_RE = /<(item|entry)\b[\s\S]*?<\/\1>/gi;
 const MAX_FEED_BYTES = 2 * 1024 * 1024;
+const MAX_JOB_SOURCE_BYTES = 8 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 
 function ipv4Number(address: string) {
@@ -97,13 +101,13 @@ export async function assertSafeFeedUrl(value: string): Promise<URL> {
   return (await resolveSafeFeedUrl(value)).url;
 }
 
-function requestFeed(target: SafeFeedTarget, timeoutMs: number): Promise<IncomingMessage> {
+function requestFeed(target: SafeFeedTarget, timeoutMs: number, accept = "application/rss+xml, application/atom+xml, application/xml, text/xml"): Promise<IncomingMessage> {
   const transport = target.url.protocol === "https:" ? httpsRequest : httpRequest;
   return new Promise((resolve, reject) => {
     const request = transport(target.url, {
       headers: {
         "User-Agent": "second-brain-rss/1.0",
-        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
+        Accept: accept,
         "Accept-Encoding": "identity",
       },
       // Happy Eyeballs (autoSelectFamily, on by default since Node 20) expects a
@@ -139,11 +143,11 @@ async function responseText(response: IncomingMessage, maxBytes: number) {
   return text + decoder.decode();
 }
 
-export async function fetchFeed(url: string, timeoutMs = 15000): Promise<FeedItem[]> {
+async function fetchPublicText(url: string, timeoutMs: number, accept: string, maxBytes = MAX_FEED_BYTES) {
   let current = url;
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     const target = await resolveSafeFeedUrl(current);
-    const res = await requestFeed(target, timeoutMs);
+    const res = await requestFeed(target, timeoutMs, accept);
     const status = res.statusCode ?? 0;
     if ([301, 302, 303, 307, 308].includes(status)) {
       res.resume();
@@ -157,9 +161,178 @@ export async function fetchFeed(url: string, timeoutMs = 15000): Promise<FeedIte
       res.resume();
       throw new Error(`HTTP ${status}`);
     }
-    return parseFeed(await responseText(res, MAX_FEED_BYTES));
+    return {
+      text: await responseText(res, maxBytes),
+      contentType: String(res.headers["content-type"] || "").toLowerCase(),
+      url: target.url.toString(),
+    };
   }
   throw new Error("Too many feed redirects");
+}
+
+export async function fetchFeed(url: string, timeoutMs = 15000): Promise<FeedItem[]> {
+  return parseFeed((await fetchPublicText(url, timeoutMs, "application/rss+xml, application/atom+xml, application/xml, text/xml")).text);
+}
+
+export async function fetchJobSource(url: string, timeoutMs = 15000): Promise<FeedItem[]> {
+  const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  if (host === "linkedin.com" || host.endsWith(".linkedin.com")) {
+    throw new Error("LinkedIn interdit la collecte automatisée ; utilisez une alerte e-mail LinkedIn.");
+  }
+  const response = await fetchPublicText(url, timeoutMs, "application/json, application/feed+json, text/html, application/xhtml+xml, application/rss+xml, application/atom+xml, application/xml, text/xml", MAX_JOB_SOURCE_BYTES);
+  const startsLikeJson = /^[\[{]/.test(response.text.trimStart());
+  if (response.contentType.includes("json") || startsLikeJson) return parseJobJson(response.text, response.url);
+  if (response.contentType.includes("html") || /<!doctype html|<html\b/i.test(response.text)) {
+    const items = parseJobPage(response.text, response.url);
+    if (!items.length) throw new Error("Cette page ne publie pas d’offres structurées Schema.org.");
+    return items;
+  }
+  return parseFeed(response.text);
+}
+
+export function parseJobPage(html: string, baseUrl: string): FeedItem[] {
+  const jobs: Record<string, unknown>[] = [];
+  for (const match of html.matchAll(/<script\b[^>]*\btype=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      collectJobPostings(JSON.parse(match[1]), jobs);
+    } catch {
+      continue;
+    }
+  }
+  return uniqueJobItems(jobs.map((job) => jobItem(job, baseUrl)));
+}
+
+export function parseJobJson(json: string, baseUrl: string): FeedItem[] {
+  let root: unknown;
+  try {
+    root = JSON.parse(json);
+  } catch {
+    throw new Error("Source JSON invalide");
+  }
+  const schemaJobs: Record<string, unknown>[] = [];
+  collectJobPostings(root, schemaJobs);
+  if (schemaJobs.length) return uniqueJobItems(schemaJobs.map((job) => jobItem(job, baseUrl)));
+
+  const record = objectValue(root);
+  const groups = Array.isArray(root)
+    ? [root]
+    : [record.jobs, record.items, record.results, record.postings].filter(Array.isArray) as unknown[][];
+  return uniqueJobItems(groups.flat().map((item) => jobItem(objectValue(item), baseUrl)));
+}
+
+function collectJobPostings(value: unknown, jobs: Record<string, unknown>[]) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectJobPostings(item, jobs);
+    return;
+  }
+  const record = objectValue(value);
+  if (!Object.keys(record).length) return;
+  const types = Array.isArray(record["@type"]) ? record["@type"] : [record["@type"]];
+  if (types.includes("JobPosting")) jobs.push(record);
+  for (const nested of Object.values(record)) if (nested && typeof nested === "object") collectJobPostings(nested, jobs);
+}
+
+function jobItem(job: Record<string, unknown>, baseUrl: string): FeedItem | null {
+  if (job.isListed === false) return null;
+  const categories = objectValue(job.categories);
+  const identifier = objectValue(job.identifier);
+  const rawLocation = objectValue(job.location);
+  const link = publicLink(firstText(job.url, job.absolute_url, job.hostedUrl, job.apply_url, job.application_url, job.jobUrl, job.applyUrl, job.shortlink, job["@id"]), baseUrl);
+  const id = firstText(identifier.value, job.id, job.shortcode, link);
+  const title = firstText(job.title, job.text, job.name);
+  if (!id || !link || !title) return null;
+  const organization = objectValue(job.hiringOrganization);
+  const company = firstText(organization.name, objectValue(job.company).name, job.company_name, sourceCompany(baseUrl));
+  const location = firstText(jobLocation(job.jobLocation), rawLocation.name, rawLocation.city, job.city, job.state, job.country, job.location, categories.location, sourceSearchLocation(baseUrl));
+  const published = jobDate(job.datePosted ?? job.published_on ?? job.publishedAt ?? job.created_at ?? job.updated_at ?? job.createdAt);
+  const summary = clean(firstText(job.description, job.descriptionPlain, job.content_text, job.content, job.summary, job.additionalPlain)).slice(0, 400);
+  return {
+    id,
+    title,
+    link,
+    published: published || undefined,
+    summary: summary || undefined,
+    company: company || undefined,
+    location: location || undefined,
+    source: jobSourceName(baseUrl),
+  };
+}
+
+function jobLocation(value: unknown): string {
+  const locations = Array.isArray(value) ? value : [value];
+  return locations.map((entry) => {
+    const place = objectValue(entry);
+    const address = objectValue(place.address);
+    return firstText(address.addressLocality, address.addressRegion, place.name, entry);
+  }).filter(Boolean).join(" · ");
+}
+
+function jobDate(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return new Date(value < 1e12 ? value * 1_000 : value).toISOString();
+  return textValue(value);
+}
+
+function publicLink(value: string, baseUrl: string) {
+  try {
+    const url = new URL(value, baseUrl);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function uniqueJobItems(items: Array<FeedItem | null>) {
+  const unique = new Map<string, FeedItem>();
+  for (const item of items) if (item && !unique.has(item.link)) unique.set(item.link, item);
+  return [...unique.values()];
+}
+
+function jobSourceName(baseUrl: string) {
+  const host = new URL(baseUrl).hostname.toLowerCase().replace(/^www\./, "");
+  if (host.endsWith("greenhouse.io")) return "Greenhouse";
+  if (host.endsWith("lever.co")) return "Lever";
+  if (host.endsWith("workable.com")) return "Workable";
+  if (host.endsWith("ashbyhq.com")) return "Ashby";
+  return host;
+}
+
+function sourceSearchLocation(baseUrl: string) {
+  try {
+    return new URL(baseUrl).searchParams.get("location") || "";
+  } catch {
+    return "";
+  }
+}
+
+function sourceCompany(baseUrl: string) {
+  try {
+    const url = new URL(baseUrl);
+    const host = url.hostname.toLowerCase();
+    const match = host.endsWith("greenhouse.io") ? url.pathname.match(/\/boards\/([^/]+)/)
+      : host.endsWith("lever.co") ? url.pathname.match(/\/postings\/([^/]+)/)
+        : host.endsWith("workable.com") ? url.pathname.match(/\/accounts\/([^/]+)/)
+          : host.endsWith("ashbyhq.com") ? url.pathname.match(/\/job-board\/([^/]+)/)
+            : null;
+    return match ? decodeURIComponent(match[1]).replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "";
+  } catch {
+    return "";
+  }
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const text = textValue(value);
+    if (text) return text;
+  }
+  return "";
 }
 
 export function parseFeed(xml: string): FeedItem[] {

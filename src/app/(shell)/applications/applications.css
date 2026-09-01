@@ -52,6 +52,7 @@
   display: flex;
   max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   border-bottom: 1px solid var(--line-soft);
   scrollbar-width: none;
 }
@@ -213,6 +214,8 @@
 .applications-documents article > div a { display: flex; min-height: 44px; align-items: center; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .applications-documents article > div a:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 .applications-documents article > div span { color: var(--muted); font-size: 10px; }
+.applications-documents article > .applications-document-actions { display: flex; gap: 6px; }
+.applications-document-actions .is-danger { color: var(--red); }
 
 .applications-document-links {
   display: grid;
@@ -250,6 +253,7 @@
 .applications-form input,
 .applications-form textarea,
 .applications-sources textarea { background: var(--surface-sunken-4); }
+.applications-sources :is(input, textarea):focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 
 .applications-check {
   grid-template-columns: 22px minmax(0, 1fr);
@@ -337,7 +341,8 @@
   .applications-link { justify-content: center; padding: 0 7px; }
   .applications-documents { padding: 12px; }
   .applications-documents article { grid-template-columns: auto minmax(0, 1fr); }
-  .applications-documents article > .applications-link { grid-column: 1 / -1; }
+  .applications-document-actions { grid-column: 1 / -1; }
+  .applications-document-actions .applications-link { flex: 1; justify-content: center; }
   .applications-document-links { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); }
   .applications-form-grid { grid-template-columns: minmax(0, 1fr); }
   .applications-sources form { padding: 18px; }

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { todayISO, weekEndISO, weekId, weekStartISO } from "@/lib/dates";
-import { fetchFeed } from "@/lib/rss";
+import { fetchFeed, fetchJobSource } from "@/lib/rss";
 import { atomicWriteFile, withFileWriteLock } from "@/lib/atomic-write";
 import { isSyncConflictPath } from "@/lib/vault-lint";
 import { planAllowsAiSynthesis, planAllowsAssistant, assistantMonthlyQuota } from "@/lib/plan";
@@ -1906,6 +1906,16 @@ export async function linkApplicationDocument(applicationPath: string, documentP
   return readNote(application.relativePath);
 }
 
+export async function deleteApplicationDocument(relativePath: string) {
+  const document = assertApplicationRecord(await readNote(relativePath), "document");
+  for (const application of await listApplicationRecords()) {
+    if (applicationRecordType(application) === "application" && applicationDocumentPaths(application.data.document_paths).includes(document.relativePath)) {
+      await linkApplicationDocument(application.relativePath, document.relativePath, false);
+    }
+  }
+  await deleteNote(document.relativePath);
+}
+
 function applicationList(value: unknown, max = 30, itemMax = 120) {
   return uniqueStrings((Array.isArray(value) ? value : String(value || "").split(/\r?\n|,/))
     .map((item) => applicationText(String(item), itemMax))
@@ -1962,7 +1972,7 @@ export async function saveJobWatchSettings(input: Omit<JobWatchSettings, "relati
     seen_ids: settings.seenIds,
     created: existing?.data.created || now,
     updated: now,
-  }), ["# Candidatures", "", "Configuration de la veille d’offres RSS/Atom."].join("\n"), { expectedMtime: existing?.mtime });
+  }), ["# Candidatures", "", "Configuration de la veille d’offres multi-sources."].join("\n"), { expectedMtime: existing?.mtime });
   return settings;
 }
 
@@ -1970,8 +1980,8 @@ function normalizedJobText(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
-export function matchesJobWatch(item: { title: string; summary?: string }, settings: JobWatchSettings) {
-  const text = normalizedJobText(`${item.title} ${item.summary || ""}`);
+export function matchesJobWatch(item: { title: string; summary?: string; company?: string; location?: string }, settings: JobWatchSettings) {
+  const text = normalizedJobText(`${item.title} ${item.company || ""} ${item.location || ""} ${item.summary || ""}`);
   const includes = settings.keywords.map(normalizedJobText);
   const excludes = settings.excludedKeywords.map(normalizedJobText);
   const locations = settings.locations.map(normalizedJobText);
@@ -1982,6 +1992,16 @@ export function matchesJobWatch(item: { title: string; summary?: string }, setti
     && (!settings.remoteOnly || /\b(remote|teletravail|home office|hybride|hybrid)\b/.test(text));
 }
 
+function jobWatchUrlKey(value: string) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return `url|${url.toString()}`;
+  } catch {
+    return "";
+  }
+}
+
 export async function ingestJobFeeds(options: { force?: boolean } = {}): Promise<JobWatchResult> {
   const ranAt = new Date().toISOString();
   if (jobWatchRunning) return { ranAt, added: 0, perFeed: {} };
@@ -1989,30 +2009,40 @@ export async function ingestJobFeeds(options: { force?: boolean } = {}): Promise
   try {
     const settings = await readJobWatchSettings();
     if (!settings.enabled && !options.force) return { ranAt, added: 0, perFeed: {} };
+    const records = await listApplicationRecords();
     const seen = new Set(settings.seenIds);
+    for (const record of records) {
+      if (applicationRecordType(record) !== "application") continue;
+      const key = jobWatchUrlKey(stringValue(record.data.offer_url));
+      if (key) seen.add(key);
+    }
     const perFeed: JobWatchResult["perFeed"] = {};
     let added = 0;
 
     for (const feed of settings.feeds) {
       try {
-        const items = await fetchFeed(feed);
-        const fresh = items.filter((item) => item.id && !seen.has(`${feed}|${item.id}`));
+        const items = await fetchJobSource(feed);
+        const key = (item: (typeof items)[number]) => jobWatchUrlKey(item.link) || `${feed}|${item.id}`;
+        const fresh = items.filter((item) => item.id && !seen.has(key(item)));
         const matches = fresh.filter((item) => matchesJobWatch(item, settings)).slice(0, 10);
+        let feedAdded = 0;
         for (const item of matches) {
           await createApplication({
-            company: feedHost(feed),
+            company: item.company || feedHost(feed),
             role: item.title || `Offre de ${feedHost(feed)}`,
+            location: item.location,
             offerUrl: item.link,
-            source: "rss",
+            source: item.source || "rss",
             sourceUrl: feed,
             externalId: item.id,
             foundOn: businessDate(item.published?.slice(0, 10)) || todayISO(),
             notes: item.summary,
           });
+          seen.add(key(item));
+          feedAdded += 1;
+          added += 1;
         }
-        for (const item of items) if (item.id) seen.add(`${feed}|${item.id}`);
-        perFeed[feed] = { added: matches.length };
-        added += matches.length;
+        perFeed[feed] = { added: feedAdded };
       } catch (error) {
         perFeed[feed] = { added: 0, error: error instanceof Error ? error.message : "fetch failed" };
       }

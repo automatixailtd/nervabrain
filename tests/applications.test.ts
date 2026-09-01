@@ -6,8 +6,10 @@ import test from "node:test";
 import {
   createApplication,
   createApplicationDocument,
+  deleteApplicationDocument,
   linkApplicationDocument,
   listApplicationRecords,
+  listTrash,
   matchesJobWatch,
   readJobWatchSettings,
   saveJobWatchSettings,
@@ -83,6 +85,12 @@ test("applications keep offer and document links in Markdown and stamp submissio
   assert.equal(edited?.data.offer_url, "https://example.com/jobs/platform");
   assert.match(edited?.content || "", /\[Offre\]\(https:\/\/example\.com\/jobs\/platform\)/);
   assert.match(edited?.content || "", /Échange avec l’équipe plateforme/);
+
+  await deleteApplicationDocument(document.relativePath);
+  const remaining = await listApplicationRecords();
+  assert.deepEqual(remaining.map((note) => note.data.record_type), ["application"]);
+  assert.deepEqual(remaining[0]?.data.document_paths, []);
+  assert.equal((await listTrash())[0]?.from, document.relativePath);
 }));
 
 test("job watch validates public HTTP URLs and applies inclusive filters", () => scratchVault(async () => {
@@ -100,6 +108,7 @@ test("job watch validates public HTTP URLs and applies inclusive filters", () =>
   };
   await saveJobWatchSettings(settings);
   assert.equal(matchesJobWatch({ title: "SRE Kubernetes — Genève", summary: "Poste hybride" }, settings), true);
+  assert.equal(matchesJobWatch({ title: "Ingénieur SRE", location: "Genève", summary: "Poste hybride" }, settings), true);
   assert.equal(matchesJobWatch({ title: "Stage SRE — Genève", summary: "Remote" }, settings), false);
   assert.equal(matchesJobWatch({ title: "SRE — Paris", summary: "Sur site" }, settings), false);
 
