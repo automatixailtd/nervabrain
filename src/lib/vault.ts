@@ -1985,13 +1985,16 @@ export function jobWatchIdentity(item: { title: string; company?: string; locati
 }
 
 export function matchesJobWatch(item: { title: string; summary?: string; company?: string; location?: string }, settings: JobWatchSettings) {
+  const title = normalizedJobText(item.title);
   const text = normalizedJobText(`${item.title} ${item.company || ""} ${item.location || ""} ${item.summary || ""}`);
   const includes = settings.keywords.map(normalizedJobText);
   const excludes = settings.excludedKeywords.map(normalizedJobText);
   const locations = settings.locations.map(normalizedJobText);
   // ponytail: text matching is intentionally naive; add per-source structured fields when a chosen ATS proves it insufficient.
   return (!includes.length || includes.some((keyword) => text.includes(keyword)))
-    && !excludes.some((keyword) => text.includes(keyword))
+    && !excludes.some((keyword) => keyword.startsWith("title:")
+      ? Boolean(keyword.slice(6).trim()) && title.includes(keyword.slice(6).trim())
+      : text.includes(keyword))
     && (!locations.length || locations.some((location) => text.includes(location)))
     && (!settings.remoteOnly || /\b(remote|teletravail|home office|hybride|hybrid)\b/.test(text));
 }

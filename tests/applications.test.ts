@@ -113,6 +113,11 @@ test("job watch validates public HTTP URLs and applies inclusive filters", () =>
   assert.equal(matchesJobWatch({ title: "Stage SRE — Genève", summary: "Remote" }, settings), false);
   assert.equal(matchesJobWatch({ title: "SRE — Paris", summary: "Sur site" }, settings), false);
 
+  const titleFiltered = { ...settings, excludedKeywords: ["title:lead", "title:responsable"] };
+  assert.equal(matchesJobWatch({ title: "Tech Lead — Cloud", location: "Genève", summary: "Poste hybride" }, titleFiltered), false);
+  assert.equal(matchesJobWatch({ title: "Responsable DevOps", location: "Genève", summary: "Poste hybride" }, titleFiltered), false);
+  assert.equal(matchesJobWatch({ title: "SRE Kubernetes — Genève", summary: "Lead technique ponctuel, poste hybride" }, titleFiltered), true);
+
   const saved = await readJobWatchSettings();
   assert.deepEqual(saved.feeds, ["https://example.com/jobs.xml"]);
   assert.deepEqual(saved.locations, ["Genève"]);
