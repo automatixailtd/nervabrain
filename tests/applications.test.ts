@@ -125,4 +125,8 @@ test("job watch validates public HTTP URLs and applies inclusive filters", () =>
     jobWatchIdentity({ title: "DevOps Engineer", company: "Pictet", location: "Genève" }),
     jobWatchIdentity({ title: "devops engineer", company: "Pictet", location: "Geneve" }),
   );
+  assert.equal(
+    jobWatchIdentity({ title: "Site Reliability Engineer (SRE) - Database and Monitoring", company: "infomaniak | The Ethical Cloud", location: "Genève" }),
+    jobWatchIdentity({ title: "SRE Database and Monitoring", company: "Infomaniak", location: "Suisse romande" }),
+  );
 }));

@@ -1981,7 +1981,13 @@ function normalizedJobText(value: string) {
 }
 
 export function jobWatchIdentity(item: { title: string; company?: string; location?: string }) {
-  return [item.company, item.title, item.location].map((value) => normalizedJobText(value || "").trim()).join("|");
+  const words = (value: string) => [...new Set(normalizedJobText(value)
+    .replace(/\bsite reliability engineer\b/g, "sre")
+    .match(/[a-z0-9]+/g)
+    ?.filter((word) => !["and", "et", "the", "sa", "ag", "cie", "sarl", "ltd", "inc"].includes(word)) || [])]
+    .sort()
+    .join(" ");
+  return `${words((item.company || "").split("|")[0])}|${words(item.title)}`;
 }
 
 export function matchesJobWatch(item: { title: string; summary?: string; company?: string; location?: string }, settings: JobWatchSettings) {
