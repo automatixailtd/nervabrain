@@ -89,7 +89,7 @@ export default async function NotePage({
               {note.data.pinned === true ? t["reader.unpin"] : t["reader.pin"]}
             </button>
           </form>
-          {["task", "project", "objective"].includes(note.kind) ? (
+          {["task", "project", "objective", "job-application"].includes(note.kind) ? (
             <Link className="button" href={prepareHref(relativePath)}>
               <BrainCircuit size={14} aria-hidden />
               {t["assistant.prepare"]}

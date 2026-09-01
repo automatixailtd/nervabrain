@@ -43,7 +43,12 @@ async function readAssistantModels(): Promise<AssistantModelCatalog> {
   }
 }
 
-function preparationPrompt(locale: "fr" | "en", title: string, relativePath: string) {
+function preparationPrompt(locale: "fr" | "en", title: string, relativePath: string, application = false) {
+  if (application) {
+    return locale === "en"
+      ? `Prepare the tracked application "${title}" (${relativePath}). Read and follow 09-Skills/prepare-application/SKILL.md. This assistant is read-only: return the complete "## Preparation" block ready to copy, but do not claim it was saved.`
+      : `Prépare la candidature suivie « ${title} » (${relativePath}). Lis et applique 09-Skills/prepare-application/SKILL.md. Cet assistant est en lecture seule : rends le bloc « ## Préparation » complet et prêt à copier, sans prétendre l’avoir enregistré.`;
+  }
   if (locale === "en") {
     return `Prepare "${title}" with my Brain (${relativePath}).
 
@@ -92,8 +97,8 @@ export default async function AssistantPage({
     ? requestedPath
     : "";
   const target = safePath ? await readNote(safePath) : null;
-  const initialPrompt = target && ["task", "project", "objective"].includes(target.kind)
-    ? preparationPrompt(locale, target.title, target.relativePath)
+  const initialPrompt = target && ["task", "project", "objective", "job-application"].includes(target.kind)
+    ? preparationPrompt(locale, target.title, target.relativePath, target.kind === "job-application")
     : "";
 
   return (

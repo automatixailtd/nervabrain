@@ -4793,6 +4793,7 @@ body.is-block-dragging .block-side-controls {
 
 .note-reader-bar .button {
   display: inline-flex;
+  min-height: 44px;
   align-items: center;
   gap: 7px;
 }

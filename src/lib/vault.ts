@@ -1980,6 +1980,10 @@ function normalizedJobText(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
+export function jobWatchIdentity(item: { title: string; company?: string; location?: string }) {
+  return [item.company, item.title, item.location].map((value) => normalizedJobText(value || "").trim()).join("|");
+}
+
 export function matchesJobWatch(item: { title: string; summary?: string; company?: string; location?: string }, settings: JobWatchSettings) {
   const text = normalizedJobText(`${item.title} ${item.company || ""} ${item.location || ""} ${item.summary || ""}`);
   const includes = settings.keywords.map(normalizedJobText);
@@ -2011,10 +2015,12 @@ export async function ingestJobFeeds(options: { force?: boolean } = {}): Promise
     if (!settings.enabled && !options.force) return { ranAt, added: 0, perFeed: {} };
     const records = await listApplicationRecords();
     const seen = new Set(settings.seenIds);
+    const identities = new Set<string>();
     for (const record of records) {
       if (applicationRecordType(record) !== "application") continue;
       const key = jobWatchUrlKey(stringValue(record.data.offer_url));
       if (key) seen.add(key);
+      identities.add(jobWatchIdentity({ title: stringValue(record.data.role), company: stringValue(record.data.company), location: stringValue(record.data.location) }));
     }
     const perFeed: JobWatchResult["perFeed"] = {};
     let added = 0;
@@ -2024,7 +2030,14 @@ export async function ingestJobFeeds(options: { force?: boolean } = {}): Promise
         const items = await fetchJobSource(feed);
         const key = (item: (typeof items)[number]) => jobWatchUrlKey(item.link) || `${feed}|${item.id}`;
         const fresh = items.filter((item) => item.id && !seen.has(key(item)));
-        const matches = fresh.filter((item) => matchesJobWatch(item, settings)).slice(0, 10);
+        const matches = [];
+        for (const item of fresh) {
+          const identity = jobWatchIdentity(item);
+          if (!matchesJobWatch(item, settings) || identities.has(identity)) continue;
+          matches.push(item);
+          identities.add(identity);
+          if (matches.length === 10) break;
+        }
         let feedAdded = 0;
         for (const item of matches) {
           await createApplication({

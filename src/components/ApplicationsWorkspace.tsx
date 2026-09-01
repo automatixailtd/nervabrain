@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
 import {
   BellRing,
+  BrainCircuit,
   BriefcaseBusiness,
   CalendarClock,
   CheckCircle2,
@@ -86,6 +87,10 @@ function value(input: unknown) {
 
 function noteLink(relativePath: string) {
   return "/note/" + relativePath.split("/").map(encodeURIComponent).join("/");
+}
+
+function prepareLink(relativePath: string) {
+  return `/assistant?prepare=${encodeURIComponent(relativePath)}`;
 }
 
 function companyInitials(company: string) {
@@ -263,6 +268,7 @@ function ApplicationRow({ application, documents, today, pending, onStage, onEdi
       <div><CustomSelect name="stage" options={stageOptions} value={application.stage} onChange={(stage) => onStage(application.path, stage)} disabled={pending} /></div>
       <div className={due ? "is-due" : ""}><strong>{application.nextAction || t("applications.noNextAction")}</strong><span>{formatDate(application.nextActionDate || application.appliedOn || application.foundOn)}</span></div>
       <div className="applications-links">
+        <Link className="applications-link" href={prepareLink(application.path)}><BrainCircuit size={13} aria-hidden />{t("applications.prepare")}</Link>
         <button className="applications-link" type="button" onClick={() => onEdit(application)}><Pencil size={13} aria-hidden />{t("applications.edit")}</button>
         <ExternalButton href={application.offerUrl}>{t("applications.link.offer")}</ExternalButton>
         <ExternalButton href={application.cvUrl}>{t("applications.link.cv")}</ExternalButton>

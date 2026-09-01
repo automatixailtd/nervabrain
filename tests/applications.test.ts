@@ -7,6 +7,7 @@ import {
   createApplication,
   createApplicationDocument,
   deleteApplicationDocument,
+  jobWatchIdentity,
   linkApplicationDocument,
   listApplicationRecords,
   listTrash,
@@ -115,4 +116,8 @@ test("job watch validates public HTTP URLs and applies inclusive filters", () =>
   const saved = await readJobWatchSettings();
   assert.deepEqual(saved.feeds, ["https://example.com/jobs.xml"]);
   assert.deepEqual(saved.locations, ["Genève"]);
+  assert.equal(
+    jobWatchIdentity({ title: "DevOps Engineer", company: "Pictet", location: "Genève" }),
+    jobWatchIdentity({ title: "devops engineer", company: "Pictet", location: "Geneve" }),
+  );
 }));
