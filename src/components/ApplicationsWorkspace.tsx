@@ -168,6 +168,11 @@ function ExternalButton({ href, children }: { href: string; children: React.Reac
   return <a className="applications-link" href={href} target="_blank" rel="noreferrer">{children}<ExternalLink size={13} aria-hidden /></a>;
 }
 
+export function additionalApplicationDocuments<T extends { url: string }>(documents: T[], primaryUrls: string[]) {
+  const primary = new Set(primaryUrls.filter(Boolean));
+  return documents.filter((document) => !primary.has(document.url));
+}
+
 function ApplicationModal({ kind, today, applications, application, onClose }: { kind: Exclude<Modal, null>; today: string; applications: Application[]; application?: Application | null; onClose: () => void }) {
   const { locale, t } = useLanguage();
   const router = useRouter();
@@ -262,6 +267,7 @@ function ApplicationRow({ application, documents, today, pending, onStage, onEdi
   const formatDate = (date: string) => date ? new Intl.DateTimeFormat(locale === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00Z`)) : t("applications.noDate");
   const due = application.nextActionDate && application.nextActionDate <= today && !["accepted", "rejected", "withdrawn", "ignored"].includes(application.stage);
   const source = applicationSource(application);
+  const additionalDocuments = additionalApplicationDocuments(documents, [application.offerUrl, application.cvUrl, application.coverLetterUrl]);
   return (
     <article className="applications-row">
       <div className="applications-identity"><span className="applications-company-mark" aria-hidden>{companyInitials(application.company)}</span><div className="applications-role">{application.offerUrl ? <a href={application.offerUrl} target="_blank" rel="noreferrer">{application.role}</a> : <button type="button" onClick={() => onEdit(application)}>{application.role}</button>}<div className="applications-company-meta"><span>{application.company || t("applications.companyUnknown")}{application.location ? <> · <MapPin size={11} aria-hidden /> {application.location}</> : null}</span>{source ? <ApplicationSource source={source} /> : null}</div></div></div>
@@ -273,7 +279,7 @@ function ApplicationRow({ application, documents, today, pending, onStage, onEdi
         <ExternalButton href={application.offerUrl}>{t("applications.link.offer")}</ExternalButton>
         <ExternalButton href={application.cvUrl}>{t("applications.link.cv")}</ExternalButton>
         <ExternalButton href={application.coverLetterUrl}>{t("applications.link.letter")}</ExternalButton>
-        {documents.map((document) => <ExternalButton href={document.url} key={document.path}>{document.name}</ExternalButton>)}
+        {additionalDocuments.map((document) => <ExternalButton href={document.url} key={document.path}>{document.name}</ExternalButton>)}
       </div>
     </article>
   );

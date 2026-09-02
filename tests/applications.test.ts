@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { additionalApplicationDocuments } from "../src/components/ApplicationsWorkspace";
 import {
   createApplication,
   createApplicationDocument,
@@ -19,6 +20,19 @@ import {
   updateApplicationStage,
   type JobWatchSettings,
 } from "../src/lib/vault";
+
+test("application rows only show linked documents that are not already primary buttons", () => {
+  const documents = [
+    { name: "CV principal", url: "https://example.com/cv" },
+    { name: "Lettre principale", url: "https://example.com/letter" },
+    { name: "CV alternatif", url: "https://example.com/other-cv" },
+  ];
+
+  assert.deepEqual(
+    additionalApplicationDocuments(documents, ["https://example.com/offer", "https://example.com/cv", "https://example.com/letter"]),
+    [documents[2]],
+  );
+});
 
 async function scratchVault(run: () => Promise<void>) {
   const previous = process.env.SECOND_BRAIN_VAULT;
