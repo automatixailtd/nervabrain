@@ -324,6 +324,7 @@ def build_json(acts: list[dict], goal: dict) -> str:
         dist = float(activity.get("distance") or 0.0)
         dur = float(activity.get("duration") or 0.0)
         items.append({
+            "id": str(activity["activityId"]) if activity.get("activityId") is not None else None,
             "date": day.isoformat(),
             "week": week_of(day, goal["plan_start"]),
             "weekday": day.weekday(),

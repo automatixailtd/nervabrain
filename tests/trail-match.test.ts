@@ -284,6 +284,20 @@ test("loadTrailData parses enriched Garmin running metrics without requiring the
   });
 });
 
+test("loadTrailData disambiguates same-name activities from legacy sync files", async () => {
+  await withTempVault(async () => {
+    const syncPath = path.join(process.env.SECOND_BRAIN_VAULT as string, "08-Projects/Trail-26K/sync-data.json");
+    await fs.mkdir(path.dirname(syncPath), { recursive: true });
+    const activity = { date: "2026-08-19", week: 8, weekday: 2, kind: "other", type: "open_water_swimming", name: "Es Mercadal", km: 1, dur_s: 1800 };
+    await fs.writeFile(syncPath, JSON.stringify({ activities: [activity, { ...activity, dur_s: 2100 }] }));
+
+    assert.deepEqual((await loadTrailData()).activities.map(({ id }) => id), [
+      "2026-08-19::open_water_swimming::Es Mercadal",
+      "2026-08-19::open_water_swimming::Es Mercadal::1",
+    ]);
+  });
+});
+
 test("savePlanOverride replaces any previous override for the same session; removePlanOverride clears it", async () => {
   await withTempVault(async () => {
     await savePlanOverride({ sessionId: "w2-d1-run", week: 2, action: "move", toWeekday: 4, reason: "", activityId: null });

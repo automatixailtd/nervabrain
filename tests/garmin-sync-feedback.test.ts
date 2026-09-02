@@ -64,3 +64,18 @@ print(module.build_sync_md(date(2026, 8, 3), acts, goal))
   assert.match(output, /Sortie sans id .*\| 2\/10 \| Difficile · RPE 4 \|/);
   assert.match(output, /Non notee .*\| \? \| \? \|/);
 });
+
+test("generic profile sync preserves Garmin activity ids", async () => {
+  const vault = await scratchVault();
+  const output = runPython(vault, String.raw`
+import importlib.util
+spec = importlib.util.spec_from_file_location("sync", "scripts/garmin-sync-profile.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+goal = {"title": "", "race_day": None, "plan_start": None, "history_start": None, "distance": 10.0, "elevation": 0.0}
+` + activities + String.raw`
+print(module.build_json(acts, goal))
+`);
+
+  assert.deepEqual(JSON.parse(output).activities.map((activity: { id: string | null }) => activity.id), ["999", null, "111"]);
+});

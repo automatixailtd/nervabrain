@@ -2127,12 +2127,16 @@ export async function loadTrailData(): Promise<TrailSyncData> {
   try {
     const raw = await fs.readFile(path.join(vaultRoot(), SYNC_JSON), "utf-8");
     const parsed = JSON.parse(raw) as { generated_at?: string; activities?: unknown[] };
+    const seenActivityIds = new Set<string>();
     const activities: TrailActivity[] = (parsed.activities || []).map((a, index) => {
       const act = a as Record<string, unknown>;
       const hrZones = zonesFromJson(act.hr_zones);
       const powerZones = zonesFromJson(act.power_zones);
+      let id = activityId(act, index);
+      if (seenActivityIds.has(id)) id = `${id}::${index}`;
+      seenActivityIds.add(id);
       return {
-        id: activityId(act, index),
+        id,
         date: String(act.date || ""),
         week: Number(act.week || 0),
         weekday: Number(act.weekday || 0),
