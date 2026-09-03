@@ -16,6 +16,7 @@ process.env.NEXT_PUBLIC_MCP_BASE_URL = "https://brain.example";
 
 import { GET, OPTIONS, POST } from "../src/app/api/mcp/route";
 import { issueAccessToken, resetOAuthStateForTests } from "../src/lib/oauth-codes";
+import { fallbackTrainingPlan, saveTrainingPlan } from "../src/lib/trail";
 
 const ENDPOINT = "https://brain.example/api/mcp";
 
@@ -62,7 +63,9 @@ test("tools/list exposes the ChatGPT-required search and fetch tools to read sco
   const names = payload.result.tools.map((tool: { name: string }) => tool.name);
   assert.ok(names.includes("search"), `missing "search" in ${names}`);
   assert.ok(names.includes("fetch"), `missing "fetch" in ${names}`);
+  assert.ok(names.includes("get_training_status"));
   assert.ok(!names.includes("create_task"), "write tools must not be listed for read-only scope");
+  assert.ok(!names.includes("record_training_feedback"));
 });
 
 test("search and fetch return the OpenAI connector document shape", async () => {
@@ -127,6 +130,89 @@ test("application MCP tools create, link, list, update, and unlink documents", a
   await call("link_application_document", { application_path: applicationPath, document_path: documentPath, linked: false });
   listed = JSON.parse((await call("list_applications", {}, readToken)).content[0].text);
   assert.deepEqual(listed.applications.find((item: { id: string }) => item.id === applicationPath).document_paths, []);
+});
+
+test("MCP module tools keep tasks, objectives, and training data in sync", async () => {
+  resetOAuthStateForTests();
+  const token = bearerToken(["read", "write"]);
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const response = await POST(rpc({ jsonrpc: "2.0", id: name, method: "tools/call", params: { name, arguments: args } }, token));
+    return (await response.json()).result;
+  };
+
+  const task = await call("create_task", { title: "Tâche MCP", area: "Test" });
+  const taskPath = String(task.content[0].text).replace("Task created: ", "");
+  await call("update_task_status", { task_path: taskPath, status: "done" });
+  const taskNote = fs.readFileSync(path.join(scratchVault, taskPath), "utf8");
+  assert.match(taskNote, /status: done/);
+  assert.match(taskNote, /done_on: \d{4}-\d{2}-\d{2}/);
+
+  const objective = await call("create_objective", { title: "Objectif MCP", area: "Test" });
+  const objectivePath = String(objective.content[0].text).replace("Objective created: ", "");
+  await call("update_objective_status", { objective_path: objectivePath, status: "paused" });
+  assert.match(fs.readFileSync(path.join(scratchVault, objectivePath), "utf8"), /status: paused/);
+
+  const monday = new Date();
+  monday.setHours(12, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const event = new Date(monday);
+  event.setDate(event.getDate() + 41);
+  const iso = (date: Date) => date.toISOString().slice(0, 10);
+  await saveTrainingPlan(fallbackTrainingPlan({
+    sport: "trail",
+    title: "Trail MCP",
+    eventDate: iso(event),
+    startDate: iso(monday),
+    weeksTotal: 6,
+    eventDistanceKm: 25,
+    eventElevationM: 1200,
+    level: "beginner",
+    daysPerWeek: 3,
+    constraints: "",
+  }));
+  fs.mkdirSync(path.join(scratchVault, "08-Projects/Trail-26K"), { recursive: true });
+  fs.writeFileSync(path.join(scratchVault, "08-Projects/Trail-26K/sync-data.json"), JSON.stringify({
+    generated_at: new Date().toISOString(),
+    activities: [{
+      id: "garmin-test-1",
+      date: iso(new Date()),
+      week: 1,
+      weekday: (new Date().getDay() + 6) % 7,
+      kind: "run",
+      type: "running",
+      name: "Course MCP",
+      km: 5,
+      dur_s: 1800,
+      hr: 145,
+      dplus: 80,
+    }],
+  }));
+
+  const training = JSON.parse((await call("get_training_status")).content[0].text);
+  assert.equal(training.objective.title, "Trail MCP");
+  assert.equal(training.recent_activities.at(-1).id, "garmin-test-1");
+  const session = training.current_week.sessions[0];
+  assert.ok(session?.id);
+
+  await call("record_training_feedback", {
+    activity_id: "garmin-test-1",
+    rpe: 5,
+    pain: 1,
+    feeling: "good",
+    note: "RAS",
+  });
+  const feedback = JSON.parse(fs.readFileSync(path.join(scratchVault, "08-Projects/Trail-26K/feedback-data.json"), "utf8"));
+  assert.equal(feedback.feedback[0].activityId, "garmin-test-1");
+
+  await call("adjust_training_session", {
+    session_id: session.id,
+    week: training.current_week.number,
+    action: "cancel",
+    reason: "Test MCP",
+  });
+  const overrides = JSON.parse(fs.readFileSync(path.join(scratchVault, "08-Projects/Training/plan-overrides.json"), "utf8"));
+  assert.equal(overrides.overrides[0].session_id, session.id);
+  assert.equal(overrides.overrides[0].action, "cancel");
 });
 
 test("fetch and read_note refuse non-Markdown vault files", async () => {

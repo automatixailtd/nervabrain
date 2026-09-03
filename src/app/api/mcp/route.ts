@@ -4,6 +4,9 @@ import {
   readNote,
   listNotes,
   createTask,
+  createObjective,
+  updateTaskStatus,
+  updateNote,
   createCapture,
   processInbox,
   createWikiNote,
@@ -15,6 +18,13 @@ import {
   updateApplicationStage,
   linkApplicationDocument,
 } from "@/lib/vault";
+import {
+  computeTrailStats,
+  savePlanOverride,
+  saveTrailFeedback,
+  type PlanOverride,
+  type TrailFeedback,
+} from "@/lib/trail";
 import { preflight, withCors } from "@/lib/cors";
 import { authenticateRequest, type AuthContext } from "@/lib/auth";
 import { readRequestText, RequestBodyError } from "@/lib/http-security";
@@ -115,6 +125,11 @@ const TOOLS = [
     },
   },
   {
+    name: "get_training_status",
+    description: "Read the live training plan, current-week sessions, recent Garmin activities, health signals, feedback still needed, and latest coach decision.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
     name: "capture_insight",
     description: "Capture an insight, idea, excerpt, or commitment. Nerva Brain immediately classifies it into a task, working note, durable knowledge, or archive.",
     inputSchema: {
@@ -172,6 +187,77 @@ const TOOLS = [
         why: { type: "string", description: "Why this task matters" },
       },
       required: ["title"],
+    },
+  },
+  {
+    name: "update_task_status",
+    description: "Update the status of an existing task.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_path: { type: "string", description: "Task path returned by list_tasks" },
+        status: { type: "string", enum: ["todo", "doing", "waiting", "done", "abandoned", "archived"] },
+      },
+      required: ["task_path", "status"],
+    },
+  },
+  {
+    name: "create_objective",
+    description: "Create a new tracked objective.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        area: { type: "string" },
+        priority: { type: "string", enum: ["high", "medium", "low"] },
+        horizon: { type: "string" },
+        current_state: { type: "string" },
+        next_step: { type: "string" },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "update_objective_status",
+    description: "Update the status of an existing objective without changing its content.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        objective_path: { type: "string", description: "Objective path returned by search or fetch" },
+        status: { type: "string", enum: ["active", "paused", "achieved", "abandoned", "archived"] },
+      },
+      required: ["objective_path", "status"],
+    },
+  },
+  {
+    name: "record_training_feedback",
+    description: "Record or replace the user's explicit RPE, pain, feeling, and note for one synced Garmin activity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        activity_id: { type: "string", description: "Activity id returned by get_training_status" },
+        rpe: { type: "integer", minimum: 1, maximum: 10 },
+        pain: { type: "integer", minimum: 0, maximum: 10 },
+        feeling: { type: "string", enum: ["great", "good", "neutral", "hard"] },
+        note: { type: "string" },
+      },
+      required: ["activity_id", "rpe", "pain", "feeling"],
+    },
+  },
+  {
+    name: "adjust_training_session",
+    description: "Move, cancel, or validate one planned session after an explicit user request. Use get_training_status first for the session id and week.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string" },
+        week: { type: "integer", minimum: 1 },
+        action: { type: "string", enum: ["move", "cancel", "validate"] },
+        to_weekday: { type: "integer", minimum: 0, maximum: 6, description: "Required for move; Monday is 0 and Sunday is 6" },
+        reason: { type: "string", description: "Required for cancel" },
+        activity_id: { type: "string", description: "Optional Garmin activity id for validate" },
+      },
+      required: ["session_id", "week", "action"],
     },
   },
   {
@@ -240,6 +326,11 @@ const WRITE_TOOLS = new Set([
   "save_daily_chat_digest",
   "save_wiki_note",
   "create_task",
+  "update_task_status",
+  "create_objective",
+  "update_objective_status",
+  "record_training_feedback",
+  "adjust_training_session",
   "create_application",
   "update_application_stage",
   "create_application_document",
@@ -303,7 +394,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
       const filterStatus = String(args.status || "active");
       const notes = filterStatus === "all" ? all : all.filter((n) => n.status === filterStatus);
       const text = notes.length
-        ? notes.map((n) => `[${n.status}] ${n.title}`).join("\n")
+        ? notes.map((n) => `[${n.status}] ${n.title} (${n.relativePath})`).join("\n")
         : `No objectives with status "${filterStatus}".`;
       return { content: [{ type: "text", text }] };
     }
@@ -365,6 +456,58 @@ async function callTool(name: string, args: Record<string, unknown>) {
       return { content: [{ type: "text", text: JSON.stringify(payload) }] };
     }
 
+    case "get_training_status": {
+      const stats = await computeTrailStats();
+      const current = stats.weeks[stats.currentWeek - 1];
+      const feedbackByActivity = new Map(stats.feedback.map((item) => [item.activityId, item]));
+      const activity = (item: (typeof stats.allActivities)[number]) => ({
+        id: item.id,
+        date: item.date,
+        sport: item.kind,
+        name: item.name,
+        distance_km: item.km,
+        duration_min: Math.round(item.durS / 60),
+        heart_rate: item.hr,
+        elevation_m: item.dplus,
+        feedback: feedbackByActivity.get(item.id) || null,
+      });
+      const payload = {
+        source: "Nerva Training module",
+        today: stats.today.toISOString().slice(0, 10),
+        objective: stats.plan.objective,
+        days_to_event: stats.daysToRace,
+        current_week: current ? {
+          number: current.plan.week,
+          dates: current.plan.dates,
+          phase: stats.phaseLabel,
+          run_target_min: current.plan.runMinTarget,
+          elevation_target_m: current.plan.dplus,
+          run_done_km: current.runKm,
+          run_done_min: Math.round(current.runMin),
+          sessions: current.match.sessions.map((item) => ({
+            id: item.session.id,
+            planned_date: item.plannedIso,
+            sport: item.session.sport,
+            title: item.session.title,
+            subtitle: item.session.subtitle,
+            duration_min: item.session.durationMin,
+            intensity: item.session.intensity,
+            optional: Boolean(item.session.optional),
+            outcome: item.outcome,
+            activity: item.activity ? activity(item.activity) : null,
+          })),
+        } : null,
+        recent_activities: stats.allActivities.slice(-8).map(activity),
+        pending_feedback: stats.pendingFeedback.slice(0, 8).map(activity),
+        latest_health: stats.health.days.at(-1) || null,
+        readiness: stats.performance.readiness,
+        coach_decision: stats.coachDecision,
+        insights: stats.insights,
+        next_session: stats.nextSession,
+      };
+      return { content: [{ type: "text", text: JSON.stringify(payload) }] };
+    }
+
     case "capture_insight": {
       const note = await createCapture({
         text: String(args.text || ""),
@@ -422,6 +565,67 @@ async function callTool(name: string, args: Record<string, unknown>) {
         why: args.why ? String(args.why) : undefined,
       });
       return { content: [{ type: "text", text: `Task created: ${note.relativePath}` }] };
+    }
+
+    case "update_task_status": {
+      const status = String(args.status || "");
+      if (!["todo", "doing", "waiting", "done", "abandoned", "archived"].includes(status)) throw new Error("Invalid task status");
+      const note = await updateTaskStatus(String(args.task_path || ""), status);
+      return { content: [{ type: "text", text: `Task updated: ${note?.relativePath || ""} (${note?.status || ""})` }] };
+    }
+
+    case "create_objective": {
+      const title = String(args.title || "").trim();
+      if (!title) throw new Error("Objective title is required");
+      const note = await createObjective({
+        title,
+        area: args.area ? String(args.area) : undefined,
+        priority: args.priority ? String(args.priority) : undefined,
+        horizon: args.horizon ? String(args.horizon) : undefined,
+        currentState: args.current_state ? String(args.current_state) : undefined,
+        nextStep: args.next_step ? String(args.next_step) : undefined,
+      });
+      return { content: [{ type: "text", text: `Objective created: ${note.relativePath}` }] };
+    }
+
+    case "update_objective_status": {
+      const status = String(args.status || "");
+      if (!["active", "paused", "achieved", "abandoned", "archived"].includes(status)) throw new Error("Invalid objective status");
+      const objective = await readNote(String(args.objective_path || ""));
+      if (!objective || objective.kind !== "objective") throw new Error("Objective not found");
+      const note = await updateNote({
+        relativePath: objective.relativePath,
+        title: objective.title,
+        status,
+        content: objective.content,
+        expectedMtime: objective.mtime,
+      });
+      return { content: [{ type: "text", text: `Objective updated: ${note.relativePath} (${note.status})` }] };
+    }
+
+    case "record_training_feedback": {
+      const feedback = await saveTrailFeedback({
+        activityId: String(args.activity_id || ""),
+        rpe: Number(args.rpe),
+        pain: Number(args.pain),
+        feeling: String(args.feeling || "neutral") as TrailFeedback["feeling"],
+        note: String(args.note || "").trim(),
+      });
+      return { content: [{ type: "text", text: `Training feedback recorded: ${feedback.activityId}` }] };
+    }
+
+    case "adjust_training_session": {
+      const action = String(args.action || "");
+      if (!["move", "cancel", "validate"].includes(action)) throw new Error("Invalid training action");
+      const override = await savePlanOverride({
+        sessionId: String(args.session_id || ""),
+        week: Number(args.week),
+        action: action as PlanOverride["action"],
+        toWeekday: args.to_weekday === undefined ? null : Number(args.to_weekday),
+        reason: String(args.reason || ""),
+        activityId: args.activity_id ? String(args.activity_id) : null,
+      });
+      return { content: [{ type: "text", text: `Training session adjusted: ${override.sessionId} (${override.action})` }] };
     }
 
     case "create_application": {
