@@ -34,6 +34,13 @@ test("application rows only show linked documents that are not already primary b
   );
 });
 
+test("applications default to the compact view while keeping detailed actions", async () => {
+  const source = await fs.readFile(path.join(process.cwd(), "src/components/ApplicationsWorkspace.tsx"), "utf8");
+  assert.match(source, /useState<ApplicationView>\("compact"\)/);
+  assert.match(source, /compact \? <div className="applications-compact-actions">/);
+  assert.match(source, /: <div className="applications-links">/);
+});
+
 async function scratchVault(run: () => Promise<void>) {
   const previous = process.env.SECOND_BRAIN_VAULT;
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "nerva-applications-"));

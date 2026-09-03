@@ -49,6 +49,7 @@ type ApplicationDocumentKind = (typeof APPLICATION_DOCUMENT_KINDS)[number];
 
 type Tab = "pipeline" | "offers" | "documents" | "sources";
 type Modal = "application" | "document" | null;
+type ApplicationView = "compact" | "detailed";
 type ActionResult = { ok: boolean; error?: string };
 
 type Application = {
@@ -261,7 +262,7 @@ function ApplicationModal({ kind, today, applications, application, onClose }: {
   );
 }
 
-function ApplicationRow({ application, documents, today, pending, onStage, onEdit }: { application: Application; documents: Document[]; today: string; pending: boolean; onStage: (path: string, stage: string) => void; onEdit: (application: Application) => void }) {
+function ApplicationRow({ application, documents, today, pending, compact, onStage, onEdit }: { application: Application; documents: Document[]; today: string; pending: boolean; compact: boolean; onStage: (path: string, stage: string) => void; onEdit: (application: Application) => void }) {
   const { locale, t } = useLanguage();
   const stageOptions = APPLICATION_STAGES.map((item) => ({ value: item, label: t(`applications.stage.${item}` as TranslationKey) }));
   const formatDate = (date: string) => date ? new Intl.DateTimeFormat(locale === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00Z`)) : t("applications.noDate");
@@ -269,18 +270,21 @@ function ApplicationRow({ application, documents, today, pending, onStage, onEdi
   const source = applicationSource(application);
   const additionalDocuments = additionalApplicationDocuments(documents, [application.offerUrl, application.cvUrl, application.coverLetterUrl]);
   return (
-    <article className="applications-row">
+    <article className={`applications-row${compact ? " is-compact" : ""}`}>
       <div className="applications-identity"><span className="applications-company-mark" aria-hidden>{companyInitials(application.company)}</span><div className="applications-role">{application.offerUrl ? <a href={application.offerUrl} target="_blank" rel="noreferrer">{application.role}</a> : <button type="button" onClick={() => onEdit(application)}>{application.role}</button>}<div className="applications-company-meta"><span>{application.company || t("applications.companyUnknown")}{application.location ? <> · <MapPin size={11} aria-hidden /> {application.location}</> : null}</span>{source ? <ApplicationSource source={source} /> : null}</div></div></div>
-      <div><CustomSelect name="stage" options={stageOptions} value={application.stage} onChange={(stage) => onStage(application.path, stage)} disabled={pending} /></div>
-      <div className={due ? "is-due" : ""}><strong>{application.nextAction || t("applications.noNextAction")}</strong><span>{formatDate(application.nextActionDate || application.appliedOn || application.foundOn)}</span></div>
-      <div className="applications-links">
+      <div className="applications-stage-cell"><CustomSelect name="stage" options={stageOptions} value={application.stage} onChange={(stage) => onStage(application.path, stage)} disabled={pending} /></div>
+      <div className={`applications-next-cell${due ? " is-due" : ""}`}><strong>{application.nextAction || t("applications.noNextAction")}</strong><span>{formatDate(application.nextActionDate || application.appliedOn || application.foundOn)}</span></div>
+      {compact ? <div className="applications-compact-actions">
+        <Link className="applications-link" href={prepareLink(application.path)} title={t("applications.prepare")}><BrainCircuit size={15} aria-hidden /><span className="sr-only">{t("applications.prepare")}</span></Link>
+        <button className="applications-link" type="button" onClick={() => onEdit(application)} title={t("applications.edit")}><Pencil size={15} aria-hidden /><span className="sr-only">{t("applications.edit")}</span></button>
+      </div> : <div className="applications-links">
         <Link className="applications-link" href={prepareLink(application.path)}><BrainCircuit size={13} aria-hidden />{t("applications.prepare")}</Link>
         <button className="applications-link" type="button" onClick={() => onEdit(application)}><Pencil size={13} aria-hidden />{t("applications.edit")}</button>
         <ExternalButton href={application.offerUrl}>{t("applications.link.offer")}</ExternalButton>
         <ExternalButton href={application.cvUrl}>{t("applications.link.cv")}</ExternalButton>
         <ExternalButton href={application.coverLetterUrl}>{t("applications.link.letter")}</ExternalButton>
         {additionalDocuments.map((document) => <ExternalButton href={document.url} key={document.path}>{document.name}</ExternalButton>)}
-      </div>
+      </div>}
     </article>
   );
 }
@@ -294,6 +298,7 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<ApplicationStageFilter>("active");
+  const [applicationView, setApplicationView] = useState<ApplicationView>("compact");
   const [message, setMessage] = useState("");
   const [pending, startTransition] = useTransition();
   const modalTrigger = useRef<HTMLElement | null>(null);
@@ -414,8 +419,8 @@ export function ApplicationsWorkspace({ records, watch, today }: { records: Vaul
       {(tab === "pipeline" || tab === "offers") ? (
         <section className="applications-list-section">
           <header><div><span className="eyebrow">{t(tab === "offers" ? "applications.offers.eyebrow" : "applications.pipeline.eyebrow")}</span><h2>{t(tab === "offers" ? "applications.offers.title" : "applications.pipeline.title")}</h2><p>{t(tab === "offers" ? "applications.offers.description" : "applications.pipeline.description")}</p></div></header>
-          <div className="applications-list-tools"><label className="applications-search"><Search size={16} aria-hidden /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("applications.search")} /></label>{tab === "pipeline" ? <label className="applications-stage-filter"><span>{t("workspace.status")}</span><CustomSelect name="application-status-filter" options={filterOptions} value={stageFilter} onChange={(value) => setStageFilter(value as ApplicationStageFilter)} /></label> : null}</div>
-          {visible.length ? <><div className="applications-row-head"><span>{t("applications.column.role")}</span><span>{t("applications.column.stage")}</span><span>{t("applications.column.next")}</span><span>{t("applications.column.documents")}</span></div><div className="applications-rows">{visible.map((application) => <ApplicationRow application={application} documents={documents.filter((document) => application.documentPaths.includes(document.path))} today={today} pending={pending} onStage={updateStage} onEdit={editApplication} key={application.path} />)}</div></> : <div className="applications-empty"><BriefcaseBusiness size={28} aria-hidden /><h3>{t(tab === "offers" ? "applications.offers.empty" : "applications.pipeline.empty")}</h3><p>{t(tab === "offers" ? "applications.offers.emptyHint" : "applications.pipeline.emptyHint")}</p>{tab === "pipeline" ? <button className="button primary" type="button" onClick={() => openModal("application")}>{t("applications.new")}</button> : null}</div>}
+          <div className="applications-list-tools"><label className="applications-search"><Search size={16} aria-hidden /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("applications.search")} /></label>{tab === "pipeline" ? <><label className="applications-stage-filter"><span>{t("workspace.status")}</span><CustomSelect name="application-status-filter" options={filterOptions} value={stageFilter} onChange={(value) => setStageFilter(value as ApplicationStageFilter)} /></label><div className="segmented-control applications-view-toggle" role="group" aria-label={t("applications.view.label")}><button className={applicationView === "compact" ? "is-active" : ""} type="button" aria-pressed={applicationView === "compact"} onClick={() => setApplicationView("compact")}>{t("applications.view.compact")}</button><button className={applicationView === "detailed" ? "is-active" : ""} type="button" aria-pressed={applicationView === "detailed"} onClick={() => setApplicationView("detailed")}>{t("applications.view.detailed")}</button></div></> : null}</div>
+          {visible.length ? <><div className={`applications-row-head${tab === "pipeline" && applicationView === "compact" ? " is-compact" : ""}`}><span>{t("applications.column.role")}</span><span>{t("applications.column.stage")}</span><span>{t("applications.column.next")}</span><span>{t(tab === "pipeline" && applicationView === "compact" ? "applications.column.actions" : "applications.column.documents")}</span></div><div className="applications-rows">{visible.map((application) => <ApplicationRow application={application} documents={documents.filter((document) => application.documentPaths.includes(document.path))} today={today} pending={pending} compact={tab === "pipeline" && applicationView === "compact"} onStage={updateStage} onEdit={editApplication} key={application.path} />)}</div></> : <div className="applications-empty"><BriefcaseBusiness size={28} aria-hidden /><h3>{t(tab === "offers" ? "applications.offers.empty" : "applications.pipeline.empty")}</h3><p>{t(tab === "offers" ? "applications.offers.emptyHint" : "applications.pipeline.emptyHint")}</p>{tab === "pipeline" ? <button className="button primary" type="button" onClick={() => openModal("application")}>{t("applications.new")}</button> : null}</div>}
         </section>
       ) : null}
 
